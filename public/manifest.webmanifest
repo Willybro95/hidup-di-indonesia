@@ -1,0 +1,17 @@
+{
+  "name": "Hidup di Indonesia",
+  "short_name": "Hidup di ID",
+  "description": "Gaji Masuk, Masalah Datang. Board game online 2–6 pemain.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#E7EEE9",
+  "theme_color": "#FFBE1A",
+  "lang": "id",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

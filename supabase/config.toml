@@ -1,0 +1,20 @@
+# Supabase CLI settings. Used by `supabase link`, `db push` and `functions deploy` (and `supabase start` for local dev).
+project_id = "hidup-di-indonesia"
+
+[api]
+enabled = true
+schemas = ["public"]
+
+[realtime]
+enabled = true
+
+[auth]
+enabled = true
+site_url = "http://localhost:5173"
+additional_redirect_urls = ["http://localhost:5173"]
+# Guests play without signing up. On the hosted project, also switch this on in the dashboard (README step 3).
+enable_anonymous_sign_ins = true
+
+[functions.game-action]
+# The function checks the player's session itself, so it works with both legacy and new Supabase API keys.
+verify_jwt = false
