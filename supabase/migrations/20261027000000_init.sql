@@ -15,7 +15,7 @@ create table if not exists public.profiles (
 create table if not exists public.game_rooms (
   code        text primary key check (code ~ '^[A-Z0-9]{5}$'),
   host_id     uuid references auth.users (id) on delete set null,
-  status      text not null check (status in ('lobby', 'playing', 'ended', 'closed')),
+  status      text not null check (status in ('lobby', 'jobs', 'playing', 'ended', 'closed')),
   version     integer not null default 1,
   state       jsonb not null,
   created_at  timestamptz not null default now(),
@@ -70,17 +70,13 @@ create table if not exists public.card_definitions (
   effects   jsonb not null,
   choices   jsonb
 );
-create table if not exists public.career_definitions (
+create table if not exists public.job_definitions (
   id        text primary key,
   name      text not null,
-  salary    bigint not null,
-  living_cost bigint not null,
-  start_debt bigint not null default 0,
-  promotes_to text,
-  raise_pct integer,
-  success_chance integer not null,
-  income_range integer[],
-  layoff_safe boolean not null default false
+  salary_m  integer not null,
+  pros      text[] not null,
+  cons      text[] not null,
+  data      jsonb not null
 );
 
 -- ───────────────────────── access rules ─────────────────────────
@@ -101,7 +97,7 @@ alter table public.game_private       enable row level security;
 alter table public.player_secrets     enable row level security;
 alter table public.game_actions       enable row level security;
 alter table public.card_definitions   enable row level security;
-alter table public.career_definitions enable row level security;
+alter table public.job_definitions    enable row level security;
 
 drop policy if exists "own profile read"   on public.profiles;
 drop policy if exists "own profile insert" on public.profiles;
@@ -123,13 +119,13 @@ drop policy if exists "read own actions" on public.game_actions;
 create policy "read own actions" on public.game_actions for select to authenticated using (user_id = auth.uid());
 
 drop policy if exists "anyone reads cards"   on public.card_definitions;
-drop policy if exists "anyone reads careers" on public.career_definitions;
+drop policy if exists "anyone reads jobs" on public.job_definitions;
 create policy "anyone reads cards"   on public.card_definitions   for select to anon, authenticated using (true);
-create policy "anyone reads careers" on public.career_definitions for select to anon, authenticated using (true);
+create policy "anyone reads jobs" on public.job_definitions for select to anon, authenticated using (true);
 
 -- Belt and braces: browsers never write game tables directly, whatever policies exist.
 revoke insert, update, delete, truncate on public.game_rooms, public.game_players, public.game_private,
-  public.player_secrets, public.game_actions, public.card_definitions, public.career_definitions from anon, authenticated;
+  public.player_secrets, public.game_actions, public.card_definitions, public.job_definitions from anon, authenticated;
 revoke all on public.game_private from anon, authenticated;
 revoke all on public.profiles from anon;
 

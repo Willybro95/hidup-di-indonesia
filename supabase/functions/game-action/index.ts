@@ -39,11 +39,6 @@ const store: Store = {
     if (error) throw error;
     return data;
   },
-  async loadSecrets(code, gameId) {
-    const { data, error } = await admin.from('player_secrets').select('player_id, goal_key').eq('room_code', code).eq('game_id', gameId);
-    if (error) throw error;
-    return Object.fromEntries((data || []).map(r => [r.player_id, r.goal_key]));
-  },
   async commit(c: CommitInput) {
     const { data, error } = await admin.rpc('apply_game_action', {
       p_code: c.code, p_expected: c.expected, p_state: c.state, p_private: c.priv, p_status: c.status, p_host: c.host,

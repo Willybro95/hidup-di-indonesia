@@ -48,10 +48,6 @@ export const store: Store = {
     const r = await exclusive(() => db.query<any>('select room_code, version_after from public.game_actions where user_id = $1 and request_id = $2', [user, request]));
     return r.rows[0] || null;
   },
-  async loadSecrets(code, gameId) {
-    const r = await exclusive(() => db.query<any>('select player_id, goal_key from public.player_secrets where room_code = $1 and game_id = $2', [code, gameId]));
-    return Object.fromEntries(r.rows.map(x => [x.player_id, x.goal_key]));
-  },
   async commit(c) {
     // PGlite has one connection; serialize calls the way Postgres serializes the row lock.
     const run = async () => {

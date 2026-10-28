@@ -1,31 +1,26 @@
 {
   "name": "hidup-di-indonesia",
   "private": true,
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "vite build",
+    "build:artifact": "node scripts/build-artifact.mjs",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "node tests/engine.sim.mjs && tsx tests/server.test.ts",
-    "gen:reference": "node scripts/gen-reference-sql.mjs",
-    "test:e2e": "tsx tests/e2e.ts"
+    "test": "node tests/engine.sim.mjs 400 && tsx tests/server.test.ts",
+    "test:e2e": "tsx tests/e2e.ts",
+    "gen:reference": "node scripts/gen-reference-sql.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "three": "^0.128.0"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.2.17",
-    "@types/react": "^18.3.12",
-    "@types/react-dom": "^18.3.1",
+    "@types/node": "^22.20.5",
     "@types/ws": "^8.5.13",
-    "@vitejs/plugin-react": "^4.3.4",
-    "autoprefixer": "^10.4.20",
-    "postcss": "^8.4.49",
-    "tailwindcss": "^3.4.17",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3",
     "vite": "^5.4.11",
@@ -33,5 +28,6 @@
   },
   "engines": {
     "node": ">=20"
-  }
+  },
+  "description": "Hidup di Indonesia: City Edition. A 3D online multiplayer property game on a hexagon of Indonesian cities."
 }

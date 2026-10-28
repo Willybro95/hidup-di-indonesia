@@ -1,685 +1,654 @@
 // @ts-self-types="./engine.d.ts"
-// ================= HIDUP DI INDONESIA — game engine =================
-// Shared by the browser (display only) and the game-action server function (authoritative).
-// Pure functions over a plain-JSON game object. All money is integer rupiah. Randomness uses crypto.getRandomValues.
+// ================= HIDUP DI INDONESIA · City Edition — rules engine =================
+// Pure functions over a plain-JSON game object. Money is integer rupiah. Randomness: crypto.getRandomValues.
 const JT = 1000000, RB = 1000;
-const START_CASH = 10 * JT;
-const MAX_LOG = 90, MAX_CHAT = 30;
+const MAX_LOG = 140, MAX_CHAT = 30;
+const START_CASH = 100 * JT, JAM_FEE = 5 * JT, MAX_JAM_TURNS = 3;
 const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
-function rnd(n) { // uniform integer in [0, n) from crypto
-  const a = new Uint32Array(1), lim = Math.floor(0x100000000 / n) * n;
-  do { crypto.getRandomValues(a); } while (a[0] >= lim);
-  return a[0] % n;
-}
+function rnd(n) { const a = new Uint32Array(1), lim = Math.floor(0x100000000 / n) * n; do { crypto.getRandomValues(a); } while (a[0] >= lim); return a[0] % n; }
 function shuffle(arr) { const a = arr.slice(); for (let i = a.length - 1; i > 0; i--) { const j = rnd(i + 1); [a[i], a[j]] = [a[j], a[i]]; } return a; }
 function mkId(n = 10) { let s = ''; const c = 'abcdefghijkmnpqrstuvwxyz23456789'; for (let i = 0; i < n; i++) s += c[rnd(c.length)]; return s; }
 function mkCode() { let s = ''; for (let i = 0; i < 5; i++) s += CODE_CHARS[rnd(CODE_CHARS.length)]; return s; }
-const fl1k = x => Math.floor(x / 1000) * 1000;
 const ce1k = x => Math.ceil(x / 1000) * 1000;
 function rp(n) { const s = Math.abs(Math.trunc(n)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.'); return (n < 0 ? '−Rp' : 'Rp') + s; }
-function rpShort(n) { const a = Math.abs(n), sg = n < 0 ? '−' : ''; if (a >= JT) { const v = a / JT; return sg + 'Rp' + (Number.isInteger(v) ? v : v.toFixed(1).replace('.', ',')) + 'jt'; } if (a >= RB) return sg + 'Rp' + Math.round(a / RB) + 'rb'; return sg + 'Rp' + a; }
+function rpShort(n) { const a = Math.abs(n), sg = n < 0 ? '−' : ''; if (a >= 1e9) return sg + 'Rp' + (a / 1e9).toFixed(1).replace(/\.0$/, '') + 'B'; if (a >= JT) { const v = a / JT; return sg + 'Rp' + (Number.isInteger(v) ? v : v.toFixed(1)) + 'M'; } if (a >= RB) return sg + 'Rp' + Math.round(a / RB) + 'K'; return sg + 'Rp' + a; }
 class GameError extends Error {}
 const fail = m => { throw new GameError(m); };
 
-// ---------- careers ----------
-const CAREERS = {
-  freshgrad: { name: 'Fresh Graduate', ic: '🎓', sal: 4500 * RB, liv: 3000 * RB, debt: 3 * JT, promo: 'kantor', chance: 50, note: 'Cicilan laptop kuliah masih jalan.' },
-  kantor:   { name: 'Karyawan Kantoran', ic: '🏢', sal: 8 * JT, liv: 5 * JT, promo: 'manajer', chance: 35 },
-  pns:      { name: 'PNS', ic: '🗂️', sal: 7 * JT, liv: 4300 * RB, up: 12, chance: 30, safe: true, note: 'Kebal PHK, naik pangkat pelan.' },
-  startup:  { name: 'Karyawan Startup', ic: '🚀', sal: 11 * JT, liv: 6800 * RB, debt: 1 * JT, up: 15, chance: 40, note: 'Gaji besar, risiko layoff besar.' },
-  freelancer:{ name: 'Freelancer', ic: '💻', sal: 7500 * RB, liv: 4500 * RB, var: [40, 160], up: 15, chance: 40, note: 'Pendapatan naik-turun tiap gajian.' },
-  pengusaha:{ name: 'Pengusaha', ic: '📈', sal: 10 * JT, liv: 6500 * RB, var: [0, 220], up: 20, chance: 35, note: 'Bisa nol, bisa dobel.' },
-  warung:   { name: 'Pemilik Warung Makan', ic: '🍛', sal: 6 * JT, liv: 3500 * RB, var: [60, 140], up: 15, chance: 40 },
-  seller:   { name: 'Online Seller', ic: '📦', sal: 7 * JT, liv: 4200 * RB, var: [50, 170], up: 15, chance: 40, note: 'Panen saat Harbolnas.' },
-  ojol:     { name: 'Driver Ojol', ic: '🛵', sal: 5 * JT, liv: 3200 * RB, var: [70, 130], up: 10, chance: 45 },
-  kreator:  { name: 'Content Creator', ic: '🎥', sal: 6 * JT, liv: 4000 * RB, var: [0, 260], up: 25, chance: 35, note: 'Algoritma menentukan nasib.' },
-  manajer:  { name: 'Manajer Korporat', ic: '👔', sal: 15 * JT, liv: 9500 * RB, up: 10, chance: 30 },
-  pencari:  { name: 'Pencari Kerja', ic: '🔎', sal: 1500 * RB, liv: 2800 * RB, chance: 55, note: 'Serabutan sambil kirim CV.' },
+// ---------- board: a hexagon, 6 sides × 6 spaces, a special corner at every vertex ----------
+const GROUPS = {
+  brown:  { name: 'Java North Coast', color: '#8B5A3C' },
+  sky:    { name: 'Sumatra', color: '#43B0E0' },
+  pink:   { name: 'Kalimantan', color: '#E2559A' },
+  orange: { name: 'Sulawesi', color: '#F08A24' },
+  red:    { name: 'Eastern Islands', color: '#DB3A34' },
+  yellow: { name: 'Central Java', color: '#F2C230' },
+  green:  { name: 'West & East Java', color: '#2E9E5B' },
+  navy:   { name: 'Prime Cities', color: '#2B3A8C' },
 };
-const STARTER_CAREERS = ['freshgrad', 'kantor', 'pns', 'startup', 'freelancer', 'pengusaha', 'warung', 'seller', 'ojol', 'kreator'];
-const OFFICE = ['freshgrad', 'kantor', 'pns', 'startup', 'manajer'];
-
-// ---------- assets ----------
-const ASSETS = {
-  reksadana: { name: 'Reksa Dana', ic: '📊', price: 2 * JT, inc: 0 },
-  saham:     { name: 'Saham Blue Chip', ic: '📉', price: 3 * JT, inc: 60 * RB },
-  emas:      { name: 'Emas Batangan', ic: '🥇', price: 4 * JT, inc: 0 },
-  warung:    { name: 'Franchise Warung', ic: '🏪', price: 8 * JT, inc: 450 * RB },
-  tanah:     { name: 'Tanah Kavling', ic: '🌱', price: 15 * JT, inc: 0 },
-  rumah:     { name: 'Rumah Subsidi', ic: '🏠', price: 25 * JT, inc: 0, kpr: 20 },
-  kos:       { name: 'Kos-kosan 6 Kamar', ic: '🏘️', price: 30 * JT, inc: 1500 * RB, kpr: 30 },
-};
-const DRIFT = { reksadana: 60, saham: 0, emas: 80, warung: 0, tanah: 150, rumah: 100, kos: 80 };
-const assetValue = (g, k) => fl1k(ASSETS[k].price * (g.market?.[k] ?? 10000) / 10000);
-
-// ---------- board (36 spaces, index 0 = bottom-right corner, counter-clockwise) ----------
-const SPACE_TYPES = {
-  start:   { lab: 'Gajian', ic: '💰' },
-  peluang: { lab: 'Peluang', ic: '🍀' },
-  apes:    { lab: 'Apes', ic: '🌧️' },
-  realita: { lab: 'Realita', ic: '🇮🇩' },
-  gaya:    { lab: 'Gaya Hidup', ic: '🛍️' },
-  keuangan:{ lab: 'Keuangan', ic: '🧮' },
-  keluarga:{ lab: 'Keluarga', ic: '👪' },
-  admin:   { lab: 'Birokrasi', ic: '📝' },
-  invest:  { lab: 'Investasi', ic: '📈' },
-  darurat: { lab: 'Darurat', ic: '🚑' },
-  rehat:   { lab: 'Rehat', ic: '🌳' },
-  kerja:   { lab: 'Kerja', ic: '💼' },
-  spesial: { lab: 'Event', ic: '🎪' },
-  fixed:   { lab: 'Event', ic: '🚆' },
-};
+const C = (n, g, price, note) => ({ n, t: 'city', g, price: price * JT, note });
 const BOARD = [
-  { n: 'GAJIAN!', t: 'start' },
-  { n: 'Warung Bu Tini', t: 'gaya' },
-  { n: 'Grup WA Alumni', t: 'peluang' },
-  { n: 'Kantor', t: 'kerja' },
-  { n: 'Kelurahan', t: 'admin' },
-  { n: 'Lampu Merah', t: 'apes' },
-  { n: 'Arisan RT', t: 'keluarga' },
-  { n: 'Aplikasi Investasi', t: 'invest' },
-  { n: 'Pos Ronda', t: 'realita' },
-  { n: 'KRL Jam Sibuk', t: 'fixed', card: 'X01' },
-  { n: 'Mal', t: 'gaya' },
-  { n: 'Bank', t: 'keuangan' },
-  { n: 'Lembur', t: 'kerja' },
-  { n: 'Jalan Berlubang', t: 'apes' },
-  { n: 'Rumah Mertua', t: 'keluarga' },
-  { n: 'Koneksi Lama', t: 'peluang' },
-  { n: 'Pameran Properti', t: 'invest' },
-  { n: 'Puskesmas', t: 'darurat' },
-  { n: 'Taman Kota', t: 'rehat' },
-  { n: 'Pasar Pagi', t: 'realita' },
-  { n: 'Coworking', t: 'kerja' },
-  { n: 'Samsat', t: 'admin' },
-  { n: 'Kedai Kopi', t: 'gaya' },
-  { n: 'Banjir Kiriman', t: 'apes' },
-  { n: 'Konsultan Keuangan', t: 'keuangan' },
-  { n: 'Bursa Saham', t: 'invest' },
-  { n: 'Seminar Bisnis', t: 'peluang' },
-  { n: 'Panggung 17-an', t: 'spesial' },
-  { n: 'Lebaran Keluarga', t: 'keluarga' },
-  { n: 'Antrean Panjang', t: 'realita' },
-  { n: 'Bengkel', t: 'darurat' },
-  { n: 'Ruang Meeting', t: 'kerja' },
-  { n: 'Flash Sale', t: 'gaya' },
-  { n: 'Peluang Usaha', t: 'peluang' },
-  { n: 'Kantor Pajak', t: 'admin' },
-  { n: 'Pijat Refleksi', t: 'rehat' },
+  { n: 'Payday', t: 'start', note: 'Collect your job’s salary every time you pass.' },
+  C('Cirebon', 'brown', 6, 'Empal gentong and megamendung batik.'),
+  { n: 'Life Event', t: 'event' },
+  C('Tegal', 'brown', 7, 'Hometown of the warteg.'),
+  { n: 'Merak Ferry Port', t: 'transport', price: 20 * JT, note: 'Java to Sumatra, if the queue allows.' },
+  C('Padang', 'sky', 10, 'The hometown of rendang.'),
+  { n: 'Traffic Jam', t: 'jam', note: 'Just passing? You’re fine. Sent here? You’re stuck.' },
+  C('Pekanbaru', 'sky', 10, 'Riau river city.'),
+  C('Palembang', 'sky', 12, 'Pempek and the Ampera Bridge.'),
+  { n: 'Power Company', t: 'utility', price: 15 * JT, note: 'Rent = dice × Rp400K, or × Rp1M if you own both companies.' },
+  C('Pontianak', 'pink', 14, 'The city on the equator.'),
+  C('Balikpapan', 'pink', 14, 'Oil town by the bay.'),
+  { n: 'Night Market', t: 'market', note: 'Street food and rumors. Draw an Indonesia Reality card.' },
+  C('Samarinda', 'pink', 16, 'Mahakam riverfront.'),
+  { n: 'Indonesia Reality', t: 'reality' },
+  C('Makassar', 'orange', 18, 'Sunsets at Losari Beach.'),
+  { n: 'Commuter Line', t: 'transport', price: 20 * JT, note: 'Packed at 7 a.m., packed at 6 p.m.' },
+  C('Manado', 'orange', 18, 'Bunaken reefs and tinutuan.'),
+  { n: 'Rest Area', t: 'rest', note: 'Land here to collect the Community Fund.' },
+  C('Palu', 'orange', 20, 'Bay city of Central Sulawesi.'),
+  C('Labuan Bajo', 'red', 22, 'Gateway to the Komodo dragons.'),
+  { n: 'Life Event', t: 'event' },
+  C('Ambon', 'red', 22, 'The City of Music.'),
+  C('Jayapura', 'red', 24, 'Hills over Yos Sudarso Bay.'),
+  { n: 'Wrong Turn!', t: 'gojam', note: 'Toll exit closed. Go straight to the Traffic Jam.' },
+  C('Semarang', 'yellow', 26, 'Lumpia and Lawang Sewu.'),
+  C('Solo', 'yellow', 26, 'Batik and night markets.'),
+  { n: 'Airport', t: 'transport', price: 20 * JT, note: 'Promo tickets, real delays.' },
+  C('Yogyakarta', 'yellow', 28, 'Gudeg, students and Malioboro.'),
+  { n: 'Water Company', t: 'utility', price: 15 * JT, note: 'Rent = dice × Rp400K, or × Rp1M if you own both companies.' },
+  { n: 'Arisan Night', t: 'arisan', note: 'Your name is drawn! Collect Rp1M from every player.' },
+  C('Bandung', 'green', 30, 'Cool air and factory outlets.'),
+  C('Surabaya', 'green', 30, 'The City of Heroes.'),
+  C('Malang', 'green', 32, 'Apples and mountain views.'),
+  C('Bali', 'navy', 35, 'Beach clubs and traffic in Canggu.'),
+  C('Jakarta', 'navy', 40, 'The capital. Bring patience.'),
 ];
+const SIDES = 6, PER_SIDE = 6;
+const POS = Object.fromEntries(BOARD.map((s, i) => [s.n, i])); // first index for each name
+const JAM_POS = POS['Traffic Jam'];
+const BUYABLE = BOARD.map((s, i) => ['city', 'transport', 'utility'].includes(s.t) ? i : -1).filter(i => i >= 0);
+const RENT_MULT = [1, 5, 14, 30, 38, 45]; // 0 houses … 4 houses, 5 = tower
+const sideOf = i => Math.floor(i / PER_SIDE);
+const houseCost = i => [5, 7, 9, 12, 15, 20][sideOf(i)] * JT;
+const baseRent = i => Math.round(BOARD[i].price * 10 / 100 / (100 * RB)) * 100 * RB;
+const rentTable = i => RENT_MULT.map(m => baseRent(i) * m);
+const groupOf = g => BOARD.map((s, i) => s.g === g ? i : -1).filter(i => i >= 0);
+const TOURIST = ['Bali', 'Labuan Bajo'];
+
+const SPACE_TYPES = {
+  start: { lab: 'Payday', ic: '💰' }, city: { lab: 'City', ic: '🏙️' }, event: { lab: 'Life Event', ic: '🍀' }, reality: { lab: 'Indonesia Reality', ic: '📰' },
+  transport: { lab: 'Transport', ic: '🚆' }, utility: { lab: 'Utility', ic: '💡' }, jam: { lab: 'Traffic Jam', ic: '🚗' },
+  rest: { lab: 'Rest Area', ic: '🌴' }, gojam: { lab: 'Wrong Turn', ic: '🚧' }, market: { lab: 'Night Market', ic: '🏮' }, arisan: { lab: 'Arisan Night', ic: '🎉' },
+};
+
+// ---------- jobs: picked from 3–4 offers at the start; each changes how money flows ----------
+// sal: salary per Payday (M). Optional: var [min%,max%], life (M per Payday), start (M), owe (M due at 1st Payday), grow (M per Payday),
+// buy/build (% discount), rentPay (% extra rent paid), tourism (% extra rent on tourist cities + transport), perProp (M per property per Payday),
+// tutor (M from each player per Payday), cardSpace (M when landing on a card space), cardPos/cardNeg (% on card cash), repairs (% extra repair fines),
+// mortgage (% of price), take (% takeover price), protect, safe (no layoffs), quickJam, immune [tags], union (+M on bonus cards), tags.
+const JOBS = {
+  pns:        { name: 'Civil Servant', ic: '🗂️', sal: 14, safe: true, cardNeg: -50, tags: ['gov'], pros: ['Can’t be laid off', 'Card fines cost you half'], cons: ['Modest salary'] },
+  startup:    { name: 'Startup Engineer', ic: '🚀', sal: 18, life: 4, tags: ['tech'], pros: ['High salary'], cons: ['Tech-layoff cards hit you', 'Living costs Rp4M each Payday'] },
+  ojol:       { name: 'Ojol Driver', ic: '🛵', sal: 13, quickJam: true, tags: ['gig'], pros: ['Traffic Jam holds you 1 turn, no fee', 'Surge-pricing cards pay you'], cons: ['Low salary'] },
+  creator:    { name: 'Content Creator', ic: '🎥', sal: 11, var: [0, 250], cardPos: 50, tags: ['creative'], pros: ['Card income +50%', 'Salary can reach Rp27M'], cons: ['Salary can be Rp0', 'Algorithm cards hurt'] },
+  seller:     { name: 'Online Seller', ic: '📦', sal: 10, perProp: 1, tags: ['seller'], pros: ['+Rp1M per property you own each Payday', 'Shopping-day cards pay you'], cons: ['Low base salary'] },
+  agent:      { name: 'Property Agent', ic: '🏘️', sal: 12, buy: 10, rentPay: 20, tags: ['biz'], pros: ['Buy from the bank 10% cheaper'], cons: ['Pay 20% more rent (always out viewing)'] },
+  contractor: { name: 'Contractor', ic: '👷', sal: 11, build: 25, repairs: 100, tags: ['biz'], pros: ['Houses and towers 25% cheaper'], cons: ['Repair and flood fines doubled'] },
+  manager:    { name: 'Corporate Manager', ic: '👔', sal: 23, owe: 25, tags: ['office'], pros: ['Top salary'], cons: ['Car loan: repay Rp25M at your first Payday', 'Mass-layoff cards hit you'] },
+  grad:       { name: 'Fresh Graduate', ic: '🎓', sal: 8, grow: 2, start: 15, tags: ['office'], pros: ['Salary grows Rp2M every Payday', 'Parents chip in Rp15M at the start'], cons: ['Starts at only Rp8M'] },
+  warung:     { name: 'Warung Owner', ic: '🍛', sal: 11, cardSpace: 5, tags: ['biz'], pros: ['+Rp5M whenever you land on a card space or the Night Market'], cons: ['Average salary'] },
+  doctor:     { name: 'Doctor', ic: '🩺', sal: 19, life: 4, immune: ['health'], tags: ['health'], pros: ['High salary', 'Immune to illness cards'], cons: ['Living costs Rp4M each Payday'] },
+  teacher:    { name: 'Teacher', ic: '📚', sal: 9, tutor: 1, tags: ['gov'], pros: ['Private tutoring: collect Rp1M from every player each Payday'], cons: ['Low salary'] },
+  guide:      { name: 'Tour Guide', ic: '🧭', sal: 12, tourism: 75, tags: ['tourism'], pros: ['+75% rent on Bali, Labuan Bajo and transport', 'Tourism-boom cards pay you'], cons: ['Tourism-slump cards hurt'] },
+  banker:     { name: 'Banker', ic: '🏦', sal: 16, life: 2, mortgage: 60, tags: ['office'], pros: ['Mortgages pay 60% and redeem without the 10% fee'], cons: ['Living costs Rp2M each Payday', 'Mass-layoff cards hit you'] },
+  lawyer:     { name: 'Lawyer', ic: '⚖️', sal: 17, life: 3, take: 125, protect: true, tags: ['office'], pros: ['Take over cities at 125% instead of 150%', 'Nobody can take over your cities'], cons: ['Living costs Rp3M each Payday'] },
+  factory:    { name: 'Factory Worker', ic: '🏭', sal: 13, safe: true, union: 3, tags: ['union'], pros: ['Union: can’t be laid off', 'Bonus cards pay you Rp3M extra'], cons: ['Average salary'] },
+  farmer:     { name: 'Coffee Farmer', ic: '☕', sal: 9, var: [60, 230], tags: ['farm'], pros: ['Harvest pays 60–230% of Rp9M', 'Commodity-boom cards pay you'], cons: ['Drought cards hurt'] },
+};
+const J = (g, pid) => JOBS[g.ps[pid].job] || {};
 
 // ---------- cards ----------
-// fx ops: cash(+/-) pay payE hap sal% paysal% spend save debt loan skip again promo layoff newjob
-//          market infl salup livup asset buy repay ins savint gamble allhap collect pbb msg careerbonus
+// Every card is written for the player who draws it; “all” and job/region cards reach other players too.
 const CARDS = {};
-const CATS = { peluang: 'Peluang', apes: 'Apes', realita: 'Realita Indonesia', gaya: 'Gaya Hidup', keuangan: 'Keputusan Keuangan', keluarga: 'Kewajiban Keluarga', admin: 'Birokrasi', darurat: 'Darurat', spesial: 'Event Spesial', fixed: 'Event' };
-function C(id, cat, title, desc, fx, ch) { CARDS[id] = { id, cat, title, desc, fx: fx || [], ch: ch || null }; }
+function K(id, deck, title, desc, fx, ch) { CARDS[id] = { id, deck, title, desc, fx: fx || [], ch: ch || null }; }
 const O = (l, fx, m) => ({ l, fx, m });
+// Life Event — mostly personal
+K('E01', 'event', 'Year-End Bonus', 'Your boss finally remembered you still work here.', [['cash', 10 * JT, 'bonus']]);
+K('E02', 'event', 'Holiday Bonus Lands', 'The THR hits your account. Your balance smiles for three days.', [['cash', 15 * JT, 'bonus']]);
+K('E03', 'event', 'Side Project', 'A college friend needs a logo. Decent pay, infinite revisions.', [['cash', 6 * JT]]);
+K('E04', 'event', 'Fun Run Door Prize', 'You came for the free T-shirt and went home with a fridge.', [['cash', 5 * JT]]);
+K('E05', 'event', 'Phone Takes a Dive', 'The screen now looks like a map of shortcut alleys.', [['pay', 3 * JT]]);
+K('E06', 'event', 'Motorbike Breaks Down', 'It stalls exactly when you’re in a hurry.', null, [O('Official workshop', [['pay', 2500 * RB]]), O('Roadside mechanic', [['pay', 1 * JT], ['back', 3]], 'It ran… for three blocks.')]);
+K('E07', 'event', 'Midnight Flash Sale', '50% off! Things you don’t need suddenly feel essential.', null, [O('Check out and resell', [['gamble', 3 * JT, 7 * JT, 50]]), O('Close the app', [])]);
+K('E08', 'event', 'Dog-Logo Crypto Coin', 'Up 300% this week. Your friends won’t stop posting screenshots.', null, [O('FOMO in Rp5M', [['gamble', 5 * JT, 14 * JT, 35]]), O('Pretend you didn’t see it', [])]);
+K('E09', 'event', 'Instant Loan SMS', '“Funds in 5 minutes!” The interest rate is not mentioned.', null, [O('Take Rp10M now', [['loan', 10 * JT, 13 * JT]], 'You must repay Rp13M at your next Payday.'), O('Block the number', [])]);
+K('E10', 'event', 'Going Home for Lebaran', 'Pricey tickets, endless traffic, but home is home. Advance to Payday.', [['goto', POS['Payday']]]);
+K('E11', 'event', 'Concert in the Capital', 'Ticket war at noon. Your fingers are fast today.', null, [O('Buy a ticket (Rp2M) and go', [['pay', 2 * JT], ['goto', POS['Jakarta']]]), O('Watch the livestream', [])]);
+K('E12', 'event', 'Promo Flight', 'A cheap ticket pops up in a friend’s story.', null, [O('Fly (Rp2M) to the Airport', [['pay', 2 * JT], ['goto', POS['Airport']]]), O('Stay home', [])]);
+K('E13', 'event', 'Promotion!', 'The long meetings paid off. Your name came up.', [['cash', 12 * JT, 'bonus']]);
+K('E14', 'event', 'Restructuring', 'A more polite word for layoffs. You keep your job, not your bonus.', [['pay', 8 * JT, 'layoff']]);
+K('E15', 'event', 'Wedding Season', 'Three invitations, one weekend. Pay Rp1M to every other player.', [['each', 1 * JT]]);
+K('E16', 'event', 'Your Birthday', 'Social media reminded everyone. Collect Rp1M from every player.', [['collect', 1 * JT]]);
+K('E17', 'event', 'Arisan Jackpot', 'Your name came out first at the office arisan. Collect Rp1.5M from every player.', [['collect', 1500 * RB]]);
+K('E18', 'event', 'Typo Transfer', 'One wrong digit and your money moved to a stranger.', [['pay', 2 * JT]]);
+K('E19', 'event', 'Online Shopping Scam', 'You ordered sneakers. A neatly wrapped brick arrived.', [['pay', 2500 * RB]]);
+K('E20', 'event', 'Freelance Translation', '40 pages due tomorrow morning.', [['cash', 4 * JT]]);
+K('E21', 'event', 'Viral for a Day', 'A million views of you falling off a bicycle.', [['cash', 3 * JT]]);
+K('E22', 'event', 'Dengue Fever', 'Three days in hospital. Mosquitoes don’t discriminate.', [['pay', 6 * JT, 'health']]);
+K('E23', 'event', 'Shortcut Card', 'A friend shares a secret back road. Keep this card to escape the Traffic Jam once.', [['jamcard']]);
+K('E24', 'event', 'Daytime Headlight Ticket', 'You forgot. The officer didn’t.', [['pay', 1 * JT]]);
+K('E25', 'event', 'Cousin’s Mega Wedding', 'Everyone is invited and everyone brings an envelope. Collect Rp2M from every player.', [['collect', 2 * JT]]);
+K('E26', 'event', 'Viral Fundraiser', 'The internet chips in for whoever is struggling most. The poorest player receives Rp8M.', [['poorgift', 8 * JT]]);
+K('E27', 'event', 'Gotong Royong', 'Neighbors help neighbors. The richest player gives Rp6M to the poorest.', [['richtax', 6 * JT]]);
+K('E28', 'event', 'Office Potluck', 'Everyone brings food, everyone gets a little bonus. Every player receives Rp1M.', [['allcash', 1 * JT]]);
+K('E29', 'event', 'Food Poisoning', 'The night-market sate was suspicious. Pay Rp2M for medicine.', [['pay', 2 * JT, 'health']]);
+K('E30', 'event', 'Lucky Lottery Ticket', 'A scratch card from the minimarket actually won.', [['cash', 7 * JT]]);
+// Indonesia Reality — the country happens to everyone
+K('R01', 'reality', 'Wedding Invitation', 'An old classmate is getting married. You’re not close, but the envelope is mandatory.', null, [O('Thick envelope', [['pay', 2 * JT]]), O('Standard envelope', [['pay', 1 * JT]]), O('“I’m out of town”', [['jam']], 'Hiding at home turned into a three-day jam.')]);
+K('R02', 'reality', 'Independence Day Dues', 'The neighborhood committee arrives with a notebook and a hopeful smile.', [['pay', 500 * RB]]);
+K('R03', 'reality', 'Vehicle Tax Due', 'Your registration reminds you the state has needs too.', [['pay', 2 * JT]]);
+K('R04', 'reality', 'Fuel Price Hike', 'Petrol goes up. Everything else follows. Every player pays Rp2M to the Community Fund.', [['allpay', 2 * JT]]);
+K('R05', 'reality', 'New Toll Road Opens', 'Everything is connected now. Advance to the nearest transport space; pay double rent if it’s owned.', [['nearest']]);
+K('R06', 'reality', 'Monsoon Floods', 'Streets became rivers. Every player pays Rp500K per house and Rp2M per tower they own.', [['allrepairs', 500 * RB, 2 * JT]]);
+K('R07', 'reality', 'Building Inspection', 'An inspector finds your buildings need “adjustments”. Pay Rp1M per house and Rp4M per tower.', [['repairs', 1 * JT, 4 * JT]]);
+K('R08', 'reality', 'Police Checkpoint', 'Papers, please. Go to the Traffic Jam.', [['jam']]);
+K('R09', 'reality', 'Rush Hour Commute', 'Packed carriage, mystery aromas, feet not touching the floor.', [['goto', POS['Commuter Line']]]);
+K('R10', 'reality', 'Rupiah Slides', 'Imported things get pricier overnight. Every player pays Rp1M to the Community Fund.', [['allpay', 1 * JT]]);
+K('R11', 'reality', 'Land Values Rise', 'A new mall is planned nearby. Collect Rp1M for each property you own.', [['perprop', 1 * JT]]);
+K('R12', 'reality', 'Tax Refund', 'You overpaid last year. The money comes home.', [['cash', 3 * JT]]);
+K('R13', 'reality', 'Car Free Day', 'A slow walk and a bag of cilok. Move back 3 spaces.', [['back', 3]]);
+K('R14', 'reality', 'Blackout', 'The power cut out right before your deadline. Advance to the Power Company.', [['goto', POS['Power Company']]]);
+K('R15', 'reality', 'Small Business Grant', 'Your side business gets a government grant.', [['cash', 5 * JT]]);
+K('R16', 'reality', 'Long Weekend', 'Three holidays in a row. Advance to the Rest Area.', [['goto', POS['Rest Area']]]);
+K('R17', 'reality', 'Mystery Parking Attendant', 'Invisible when you arrive, right there when you leave.', [['pay', 200 * RB]]);
+K('R18', 'reality', 'Government Cash Aid', 'Direct cash assistance is disbursed. Every player receives Rp3M.', [['allcash', 3 * JT]]);
+K('R19', 'reality', 'Collective Leave Day', 'A surprise cuti bersama. Every player gets Rp2M in holiday pay.', [['allcash', 2 * JT, 'bonus']]);
+K('R20', 'reality', 'Bali Tourism Boom', 'Flights are full. Owners of Bali and Jakarta collect Rp3M per city; Tour Guides get Rp4M.', [['regionbonus', 'navy', 3 * JT], ['jobcash', ['tourism'], 4 * JT]]);
+K('R21', 'reality', 'Nickel Boom', 'Smelters everywhere. Owners of Sulawesi cities collect Rp3M per city.', [['regionbonus', 'orange', 3 * JT]]);
+K('R22', 'reality', 'New Capital Hype', 'Everyone wants land near the new capital. Owners of Kalimantan cities collect Rp3M per city.', [['regionbonus', 'pink', 3 * JT]]);
+K('R23', 'reality', 'Coffee Export Boom', 'Indonesian beans are trending abroad. Coffee Farmers get Rp7M; Warung Owners get Rp2M.', [['jobcash', ['farm'], 7 * JT], ['jobcash', ['biz'], 2 * JT]]);
+K('R24', 'reality', 'Ojol Surge Pricing', 'It’s raining at 5 p.m. Ojol Drivers earn Rp5M; everyone else pays Rp500K for rides.', [['jobcash', ['gig'], 5 * JT], ['jobpay', ['gig'], 500 * RB]]);
+K('R25', 'reality', 'Civil Servant Pay Raise', 'Government salaries go up. Civil Servants and Teachers get Rp4M.', [['jobcash', ['gov'], 4 * JT]]);
+K('R26', 'reality', 'Tech Winter', 'Startups cut staff to “extend runway”. Startup Engineers lose Rp7M.', [['jobcash', ['tech'], -7 * JT, 'layoff']]);
+K('R27', 'reality', 'Algorithm Change', 'Reach drops 80% overnight. Content Creators lose Rp4M.', [['jobcash', ['creative'], -4 * JT]]);
+K('R28', 'reality', 'El Niño Drought', 'The rains don’t come. Coffee Farmers lose Rp5M.', [['jobcash', ['farm'], -5 * JT]]);
+K('R29', 'reality', 'Jakarta Floods', 'The capital is underwater again. Owners of Bali and Jakarta pay Rp2M per city.', [['regionpay', 'navy', 2 * JT]]);
+K('R30', 'reality', 'Port Strike', 'Ships wait offshore. Every transport owner pays Rp2M per transport space.', [['typepay', 'transport', 2 * JT]]);
+K('R31', 'reality', 'Interest Rate Hike', 'The central bank raises rates. Every player pays Rp1M per mortgaged property.', [['mortpay', 1 * JT]]);
+K('R32', 'reality', 'Rice Price Spike', 'Nasi is life, and life got pricier. Every player pays Rp1M to the Community Fund.', [['allpay', 1 * JT]]);
+K('R33', 'reality', 'Mass Layoffs', 'Corporate “efficiency”. Office workers (managers, bankers, lawyers, graduates) lose Rp5M.', [['jobcash', ['office'], -5 * JT, 'layoff']]);
+K('R34', 'reality', 'National Shopping Day', 'Online Sellers earn Rp6M and Content Creators Rp3M. Everyone else spends Rp1M.', [['jobcash', ['seller'], 6 * JT], ['jobcash', ['creative'], 3 * JT], ['jobpay', ['seller', 'creative'], 1 * JT]]);
+K('R35', 'reality', 'Volcano Ash Cloud', 'Flights grounded across the islands. Tour Guides lose Rp4M; the Airport owner pays Rp3M.', [['jobcash', ['tourism'], -4 * JT], ['ownerpay', POS['Airport'], 3 * JT]]);
+K('R36', 'reality', 'Union Wage Deal', 'Factory unions win a raise. Factory Workers get Rp5M.', [['jobcash', ['union'], 5 * JT]]);
 
-// PELUANG
-C('P01','peluang','Bonus Akhir Tahun','Bos akhirnya ingat kalau kamu masih bekerja di sini.',[['cash',3*JT]]);
-C('P02','peluang','THR Cair','Tanggal merah datang, THR mendarat. Saldo tersenyum sebentar.',[['sal%',100]]);
-C('P03','peluang','Proyek Sampingan','Teman kuliah butuh logo. Bayarannya lumayan, revisinya tak terbatas.',null,[O('Ambil proyeknya',[['cash',2*JT],['hap',-6]]),O('Tolak halus',[['hap',3]])]);
-C('P04','peluang','Doorprize Jalan Sehat','Datang cuma buat kupon. Pulang bawa kulkas dua pintu.',[['cash',1500*RB],['hap',5]]);
-C('P05','peluang','Cashback Nyangkut','Cashback bulan lalu ternyata masih bisa dicairkan.',[['cash',350*RB]]);
-C('P06','peluang','Dapat Referral','Kenalan merekomendasikan kamu ke HRD perusahaan lain.',null,[O('Coba melamar',[['newjob']]),O('Bertahan di sini',[['hap',2]])]);
-C('P07','peluang','Naik Jabatan','Rapat panjang ternyata ada gunanya. Namamu disebut atasan.',[['promo']]);
-C('P08','peluang','Jualan Preloved','Lemari penuh baju yang dipakai sekali. Saatnya cuan.',[['cash',800*RB],['hap',3]]);
-C('P09','peluang','Endorse Kecil-kecilan','Brand skincare lokal kirim paket plus sedikit fee.',[['cash',1200*RB]]);
-C('P10','peluang','Komisi Makelar','Kamu kenalkan tetangga ke agen rumah. Deal! Kamu kebagian komisi.',[['cash',2500*RB]]);
-C('P11','peluang','Undian Tabungan','Rekening yang hampir terlupa ternyata ikut undian.',[['cash',5*JT],['hap',6]]);
-C('P12','peluang','Titipan Nenek','Nenek menitipkan sebatang emas kecil "buat masa depan".',[['asset','emas']]);
-C('P13','peluang','Lembur Dibayar','Lembur yang dihitung lembur. Langka, tapi nyata.',[['sal%',30],['hap',-3]]);
-C('P14','peluang','Saham Terbang','Saham yang kamu dengar dari tukang parkir ternyata benar.',[['market','saham',2500],['hap',2]]);
-C('P15','peluang','Investor Grup Alumni','Ide usahamu dilirik kakak tingkat yang sudah sukses.',null,[O('Terima modal kerja sama',[['cash',4*JT],['hap',-4]],'Modal masuk, rapat mingguan juga.'),O('Fokus kerja dulu',[['hap',2]])]);
-C('P16','peluang','Freelance Terjemahan','Dokumen 40 halaman, tenggatnya besok pagi.',[['cash',1*JT],['hap',-4]]);
-C('P17','peluang','Beasiswa Sertifikasi','Kantor membiayai sertifikasi. Kelasnya tiap Sabtu.',null,[O('Ambil sertifikasinya',[['salup',10],['hap',-5]]),O('Lewatkan',[])]);
-C('P18','peluang','Arisan Narik Duluan','Namamu keluar pertama di arisan kantor.',[['cash',2*JT],['hap',2]]);
-C('P19','peluang','Utang Lama Dibayar','Utang teman lima tahun lalu tiba-tiba dilunasi. Keajaiban kecil.',[['cash',1*JT],['hap',4]]);
-C('P20','peluang','Viral Sesaat','Videomu jatuh dari sepeda ditonton sejuta orang.',[['cash',700*RB],['hap',-2],['careerbonus','kreator',2500*RB]]);
-C('P21','peluang','Kenaikan Gaji Tahunan','Naik sesuai inflasi. Setidaknya naik.',[['salup',8]]);
-C('P22','peluang','Ngopi Jadi Bisnis','Ngopi santai berujung tawaran kolaborasi.',null,[O('Gas kolaborasi',[['cash',1500*RB],['hap',-2]]),O('Santai saja',[['hap',3]])]);
-
-// APES
-C('A01','apes','Motor Minta Perhatian','Motor mogok tepat ketika kamu sedang buru-buru.',null,[O('Servis di bengkel resmi',[['pay',750*RB]]),O('Bengkel pinggir jalan',[['pay',300*RB],['hap',-6]],'Mesinnya jalan, hatimu tidak tenang.')]);
-C('A02','apes','HP Jatuh','Layar retak seperti peta jalan tikus.',null,[O('Ganti LCD',[['pay',1200*RB]]),O('Pakai apa adanya',[['hap',-8]])]);
-C('A03','apes','Kena Tilang','Lupa nyalakan lampu siang hari. Petugas tidak lupa.',[['pay',250*RB],['hap',-3]]);
-C('A04','apes','Restrukturisasi','Kata yang terdengar lebih sopan daripada PHK.',[['layoff',['startup','kantor','freshgrad','manajer'],-3]]);
-C('A05','apes','Banjir Masuk Rumah','Hujan semalam, karpet berubah jadi kolam.',[['payE',1500*RB],['hap',-5]]);
-C('A06','apes','Kena Tipu Online','Beli sepatu, yang datang batu bata dibungkus rapi.',[['pay',600*RB],['hap',-6]]);
-C('A07','apes','Laptop Mati Total','Tepat sebelum presentasi. Tentu saja.',[['payE',2500*RB]]);
-C('A08','apes','Startup Gulung Tikar','Kantor tutup setelah "efisiensi" ketiga tahun ini.',[['layoff',['startup'],-2]]);
-C('A09','apes','Teman Pinjam Uang','"Cuma sampai gajian kok." Gajian yang mana, tidak disebut.',null,[O('Pinjamkan Rp1 juta',[['spend',1*JT],['hap',3]],'Uangnya pergi, pertemanan aman.'),O('Tolak halus',[['hap',-4]])]);
-C('A10','apes','Atap Bocor','Musim hujan datang, ember-ember mulai bertugas.',[['payE',900*RB]]);
-C('A11','apes','Dompet Hilang di KRL','Jam pulang kerja. Selamat tinggal, KTP dan kartu ATM.',[['pay',400*RB],['hap',-5]]);
-C('A12','apes','Saham Gorengan Gosong','Saham yang katanya "pasti naik" ternyata tidak.',[['market','saham',-3000],['hap',-2]]);
-C('A13','apes','Reksa Dana Lesu','Pasar lagi galau, portofolio ikut galau.',[['market','reksadana',-1500]]);
-C('A14','apes','Tipes Kambuh','Kebanyakan begadang, kurang istirahat.',[['payE',2*JT],['skip',1]]);
-C('A15','apes','Ban Bocor Kena Paku','Paku di jalan selalu menemukan jalannya ke ban kamu.',[['pay',150*RB],['hap',-2]]);
-C('A16','apes','Klien Revisi Lagi','Revisi ke-12: "lebih ngejreng tapi tetap elegan."',[['hap',-8]]);
-C('A17','apes','Langganan Lupa Dicabut','Tiga aplikasi streaming memotong saldo diam-diam.',[['pay',450*RB]]);
-C('A18','apes','Gaji Telat','HR bilang sistem lagi error. Ibu kos tidak mau tahu.',[['hap',-6],['debt',500*RB],['msg','Ngutang dulu ke warung sebelah.']]);
-C('A19','apes','Mertua Menginap Seminggu','Kulkas mendadak kosong, jadwal mendadak penuh.',[['pay',800*RB],['hap',-4]]);
-C('A20','apes','Salah Transfer','Typo satu digit, uang melayang ke rekening orang lain.',[['pay',500*RB],['hap',-5]]);
-C('A21','apes','Si Oyen Sakit','Kucing oren tidak mau makan. Dokter hewan menunggu.',[['payE',700*RB],['hap',-2]]);
-C('A22','apes','Kemalingan','Helm dan sandal hilang. Malingnya ternyata selektif.',[['pay',350*RB],['hap',-6]]);
-
-// REALITA INDONESIA
-C('R01','realita','Undangan Kondangan','Teman lama menikah. Belum tentu dekat, tapi amplop tetap harus disiapkan.',null,[O('Amplop tebal',[['pay',500*RB],['hap',4]]),O('Amplop standar',[['pay',200*RB]]),O('Pura-pura dinas luar kota',[['hap',-6]])]);
-C('R02','realita','Iuran 17-an','Panitia RT keliling membawa buku catatan dan senyum penuh harap.',[['pay',100*RB],['hap',3]]);
-C('R03','realita','Pajak Kendaraan','STNK mengingatkan bahwa negara juga punya kebutuhan.',[['pay',600*RB]]);
-C('R04','realita','Antre Faskes','Nomor antreanmu 187. Yang dipanggil baru 42.',[['hap',-5]]);
-C('R05','realita','Harga Cabai Naik','Sambal adalah kebutuhan pokok. Inflasi setuju.',[['infl',300],['hap',-2]]);
-C('R06','realita','Ditanya "Kapan Nikah?"','Lebaran, ruang tamu, dan tante yang penuh perhatian.',[['hap',-7]]);
-C('R07','realita','Mudik Lebaran','Tiket mahal, macet panjang, tapi rindu tidak bisa ditawar.',null,[O('Mudik',[['pay',2*JT],['hap',12]]),O('Lebaran di kota',[['hap',-6]])]);
-C('R08','realita','Tarif Ojol Naik','Hujan turun, tarif naik, saldo turun.',[['pay',120*RB]]);
-C('R09','realita','Tukang Parkir Gaib','Tidak terlihat saat datang, muncul saat kamu mau pergi.',[['pay',5*RB],['hap',-1]]);
-C('R10','realita','BBM Naik','Harga bensin naik. Harga lain ikut menyesuaikan diri.',[['infl',500],['hap',-3]]);
-C('R11','realita','Pesan Berantai Keluarga','Grup WA keluarga kirim tips kesehatan yang meragukan.',[['hap',-3]]);
-C('R12','realita','Gapura Dicat Ulang','Gapura RT akan dicat ulang. Lagi.',[['pay',150*RB]]);
-C('R13','realita','Jalan Utama Banjir','Jalan ke kantor berubah jadi sungai. Kamu ikut arus.',[['skip',1],['hap',-3]]);
-C('R14','realita','Hajatan Tetangga','Sound system 3000 watt sampai jam dua pagi.',[['hap',-5]]);
-C('R15','realita','Sales Kartu Kredit','Ditawari dengan ramah, gigih, dan berulang.',null,[O('Terima limit Rp5 juta',[['loan',5*JT,5500*RB],['hap',2]],'Saldo terasa lega. Untuk sekarang.'),O('Tolak tegas',[['hap',2]])]);
-C('R16','realita','Uang Makan Naik','Tunjangan makan akhirnya naik Rp5.000.',[['salup',2],['hap',2]]);
-C('R17','realita','Pemadaman Listrik','Mati lampu pas tenggat. Warung kopi ber-colokan jadi kantor.',[['pay',75*RB],['hap',-3]]);
-C('R18','realita','Antre Minyak Goreng','Antrean panjang demi dua liter.',[['pay',60*RB],['hap',-4]]);
-C('R19','realita','Kontrakan Naik','Pemilik kontrakan bilang semua harga naik, termasuk kontrakan.',[['livup',8]]);
-C('R20','realita','Giliran Ronda','Kopi gratis, kantuk berbayar.',null,[O('Ikut ronda',[['hap',3]]),O('Bayar pengganti',[['pay',50*RB]])]);
-C('R21','realita','Kerja Bakti','Minggu pagi, cangkul, dan gosip tetangga.',[['hap',4]]);
-C('R22','realita','Salam Tempel Keponakan','Para keponakan berbaris rapi dengan tangan terbuka.',[['pay',750*RB],['hap',5]]);
-
-// GAYA HIDUP
-C('G01','gaya','Flash Sale Tengah Malam','Diskon 50%! Barang yang tidak kamu butuhkan kini terasa wajib dimiliki.',null,[O('Checkout',[['spend',900*RB],['hap',6]]),O('Tutup aplikasi',[['hap',-2]])]);
-C('G02','gaya','Es Kopi Susu Gula Aren','Gelas ketiga hari ini.',null,[O('Beli satu lagi',[['spend',60*RB],['hap',2]]),O('Bawa tumbler',[])]);
-C('G03','gaya','Staycation','Butuh healing. Hotel di kota sendiri pun terasa liburan.',null,[O('Gas staycation',[['spend',1500*RB],['hap',12]]),O('Healing di kasur',[['hap',4]])]);
-C('G04','gaya','War Tiket Konser','Tiket dijual jam 12 siang. Jari harus cepat.',null,[O('Beli tiket',[['spend',1800*RB],['hap',14]]),O('Nonton live teman',[['hap',-3]])]);
-C('G05','gaya','Gym Baru Buka','Promo member tahunan. Motivasi bertahan dua minggu.',null,[O('Daftar member',[['spend',1200*RB],['hap',6]]),O('Lari keliling komplek',[['hap',3]])]);
-C('G06','gaya','HP Baru','HP lama masih bisa, tapi kamera teman lebih bagus.',null,[O('Bayar tunai',[['spend',6*JT],['hap',10]]),O('Paylater 12x',[['debt',7200*RB],['hap',10]],'Cicilan dimulai bulan depan.'),O('Tahan dulu',[['hap',-3]])]);
-C('G07','gaya','Nongkrong "Sebentar"','Ajakan "sebentar aja" biasanya selesai jam satu pagi.',null,[O('Ikut',[['spend',350*RB],['hap',6]]),O('Rebahan',[['hap',2]])]);
-C('G08','gaya','Tiket Promo ke Bali','Tiket murah muncul di story teman.',null,[O('Berangkat',[['spend',4500*RB],['hap',18]]),O('Lihat-lihat saja',[['hap',-4]])]);
-C('G09','gaya','Skincare Sepuluh Langkah','Rutinitas wajah lebih panjang dari rutinitas kerja.',null,[O('Beli satu set',[['spend',700*RB],['hap',5]]),O('Sabun cuci muka saja',[])]);
-C('G10','gaya','Lari 10K','Fotografer di garis finis adalah motivasi utama.',null,[O('Daftar',[['spend',450*RB],['hap',7]]),O('Jadi suporter',[['hap',2]])]);
-C('G11','gaya','Makan Omakase','Sepotong ikan, harganya sepotong motor.',null,[O('Coba sekali seumur hidup',[['spend',2*JT],['hap',9]]),O('Nasi padang saja',[['hap',4]])]);
-C('G12','gaya','Tanaman Hias Mahal','Katanya daun belang itu investasi.',null,[O('Beli',[['spend',1500*RB],['hap',5]]),O('Tanam cabai di pot',[['hap',3]])]);
-C('G13','gaya','Serial Baru Rilis','Semua orang spoiler di grup.',null,[O('Langganan streaming',[['spend',150*RB],['hap',4]]),O('Keluar grup sementara',[['hap',-2]])]);
-C('G14','gaya','Kucing Depan Rumah','Kucing kampung menatapmu penuh harap.',null,[O('Adopsi',[['spend',200*RB],['hap',8]]),O('Beli kucing ras',[['spend',3*JT],['hap',9]]),O('Belum siap',[])]);
-C('G15','gaya','Sepatu Lari Karbon','Katanya bikin lari lebih cepat. Dompet lebih cepat habis.',null,[O('Beli',[['spend',2200*RB],['hap',5]]),O('Sepatu lama masih kuat',[])]);
-C('G16','gaya','Kerja dari Kafe','Produktivitas naik, saldo turun.',null,[O('Pesan dua menu',[['spend',250*RB],['hap',3]]),O('Kerja di kosan',[])]);
-C('G17','gaya','Ulang Tahun Pasangan','Ekspektasi tinggi, anggaran menengah.',null,[O('Kejutan mewah',[['spend',1500*RB],['hap',8]]),O('Makan malam sederhana',[['spend',300*RB],['hap',3]]),O('Ucapan tulus',[['hap',-3]])]);
-C('G18','gaya','Main Padel','Olahraga baru, raket baru, grup WA baru.',null,[O('Ikut main',[['spend',1*JT],['hap',7]]),O('Nanti saja',[['hap',-1]])]);
-C('G19','gaya','Cat Rambut','Warna baru, kepercayaan diri baru.',null,[O('Ke salon',[['spend',500*RB],['hap',5]]),O('Tidak dulu',[])]);
-C('G20','gaya','Pameran Seni','Lukisan kecil di pojok galeri memanggil namamu.',null,[O('Beli lukisan',[['spend',800*RB],['hap',4]]),O('Foto saja',[['hap',1]])]);
-C('G21','gaya','Detoks Digital','Semua media sosial dihapus selama seminggu.',[['hap',8]]);
-C('G22','gaya','Belanja Bulanan Kalap','Niatnya beli sabun, pulang bawa troli penuh.',[['pay',600*RB],['hap',2]]);
-
-// KEPUTUSAN KEUANGAN
-C('K01','keuangan','Dana Darurat','Kesempatan menyiapkan tabungan sebelum masalah berikutnya datang.',null,[O('Tabung Rp2 juta',[['save',2*JT]]),O('Tabung Rp1 juta',[['save',1*JT]]),O('Nanti saja',[])]);
-C('K02','keuangan','Promo Reksa Dana','Aplikasi investasi memberi promo pembelian pertama.',null,[O('Beli reksa dana',[['buy','reksadana']]),O('Lewat',[])]);
-C('K03','keuangan','Diskon Pelunasan','Bank menawarkan potongan kalau kamu bayar utang sekarang.',null,[O('Bayar utang Rp3 juta',[['repay',3*JT]]),O('Tidak sekarang',[])]);
-C('K04','keuangan','SMS Pinjol','"Dana cair 5 menit tanpa ribet!" Bunganya tidak disebut.',null,[O('Ambil Rp3 juta',[['loan',3*JT,3900*RB],['hap',-2]]),O('Blokir nomornya',[['hap',2]])]);
-C('K05','keuangan','Asuransi Kesehatan','Agen asuransi datang di waktu yang, kebetulan, tepat.',null,[O('Ambil polis (Rp1 juta)',[['spend',1*JT],['ins']],'Biaya darurat berikutnya ditanggung separuh.'),O('Nanti dulu',[])]);
-C('K06','keuangan','Emas Lagi Turun','Harga emas sedang turun. Katanya ini saatnya.',null,[O('Beli emas',[['market','emas',-500],['buy','emas']]),O('Lewat',[['market','emas',-500]])]);
-C('K07','keuangan','KPR Rumah Subsidi','Bank menawarkan rumah subsidi dengan DP 20%.',null,[O('Ambil KPR',[['kpr','rumah']]),O('Ngontrak dulu',[])]);
-C('K08','keuangan','Investasi "Pasti Untung"','Teman SMA menawarkan profit 10% per minggu, katanya aman.',null,[O('Ikut Rp2 juta',[['spend',2*JT],['hap',-8]],'Akun pengelolanya hilang seminggu kemudian.'),O('Tolak',[['hap',4]],'Firasatmu benar.')]);
-C('K09','keuangan','Aplikasi Budgeting','Akhirnya tahu uang habis ke mana. Rasanya campur aduk.',[['livup',-5],['hap',2]]);
-C('K10','keuangan','Saham Blue Chip','Analis di televisi bilang ini momen bagus.',null,[O('Beli saham',[['buy','saham']]),O('Lewat',[])]);
-C('K11','keuangan','Cicil Lebih Awal','Uang sedang ada. Godaan belanja juga ada.',null,[O('Bayar utang Rp2 juta',[['repay',2*JT]]),O('Simpan saja',[])]);
-C('K12','keuangan','Bunga Tabungan','Dana daruratmu berbunga. Sedikit, tapi pasti.',[['savint',6]]);
-C('K13','keuangan','Tabungan Masa Depan','Rencana jangka panjang yang selalu ditunda.',null,[O('Sisihkan Rp1,5 juta',[['save',1500*RB],['hap',2]]),O('Tunda lagi',[])]);
-C('K14','keuangan','Tawaran Franchise','Waralaba warung modal kecil, katanya balik modal cepat.',null,[O('Beli franchise',[['buy','warung']]),O('Lewat',[])]);
-C('K15','keuangan','Kos-kosan Dijual','Pemilik kos dekat kampus pindah ke luar kota.',null,[O('Beli tunai',[['buy','kos']]),O('Ambil KPR',[['kpr','kos']]),O('Lewat',[])]);
-C('K16','keuangan','Tanah Kavling','Lokasinya "dekat rencana tol".',null,[O('Beli tanah',[['buy','tanah']]),O('Lewat',[])]);
-C('K17','keuangan','Tagihan Paylater','Tagihan belanja yang sudah kamu lupakan.',[['pay',800*RB],['hap',-2]]);
-C('K18','keuangan','Restitusi Pajak','Lebih bayar pajak tahun lalu dikembalikan.',[['cash',900*RB],['hap',2]]);
-C('K19','keuangan','Pasar Optimis','Kamu membaca satu artikel dan merasa jadi analis.',[['market','*',800]]);
-C('K20','keuangan','Koin Kripto Viral','Koin bergambar hewan naik 300%. Teman-teman pamer.',null,[O('FOMO Rp1,5 juta',[['gamble',1500*RB,4*JT]]),O('Pura-pura tidak lihat',[['hap',1]])]);
-C('K21','keuangan','Kelas Literasi Keuangan','Gratis materi, berbayar penyesalan masa lalu.',null,[O('Ikut kelas (Rp500 ribu)',[['spend',500*RB],['livup',-6],['hap',2]]),O('Lewat',[])]);
-C('K22','keuangan','Celengan Ayam','Celengan dipecahkan. Isinya receh dan kenangan.',[['cash',250*RB],['hap',3]]);
-
-// KELUARGA
-C('F01','keluarga','Kiriman untuk Orang Tua','Orang tua tidak minta, tapi kamu tahu.',null,[O('Kirim 10% gaji',[['paysal%',10],['hap',6]]),O('Kirim doa dulu',[['hap',-6]])]);
-C('F02','keluarga','Adik Masuk Kuliah','UKT semester pertama sudah keluar.',null,[O('Bantu bayar',[['pay',2*JT],['hap',6]]),O('Suruh cari beasiswa',[['hap',-5]])]);
-C('F03','keluarga','Arisan Keluarga Besar','Giliranmu jadi tuan rumah.',[['pay',300*RB],['hap',2]]);
-C('F04','keluarga','Sepupu Menikah','Seragam keluarga wajib dijahit.',[['pay',500*RB],['hap',3]]);
-C('F05','keluarga','Ponakan Ulang Tahun','Mainan yang diminta ternyata edisi terbatas.',[['pay',250*RB],['hap',3]]);
-C('F06','keluarga','Orang Tua Sakit','Kamu pulang dan menanggung biaya rumah sakit.',[['payE',1500*RB],['hap',-3]]);
-C('F07','keluarga','Pinjam Mobil Om','Mobilnya gratis, bensinnya tidak.',[['pay',200*RB],['hap',4]]);
-C('F08','keluarga','Makan Malam Keluarga','Semua menunggu kamu bayar karena "sudah kerja di kota".',[['pay',700*RB],['hap',2]]);
-
-// BIROKRASI
-C('D01','admin','Perpanjang SIM','Tes ujian praktik zig-zag, lagi.',[['pay',250*RB],['hap',-3]]);
-C('D02','admin','KTP Hilang','Fotokopinya ada di mana-mana, aslinya entah di mana.',null,[O('Urus lewat calo',[['pay',300*RB]]),O('Urus sendiri',[['skip',1],['hap',-2]],'Bolak-balik kelurahan, giliran berikutnya hilang.')]);
-C('D03','admin','Lapor SPT','Formulir pajak tahunan menantimu.',null,[O('Lapor tepat waktu',[['hap',-2]]),O('Telat, bayar denda',[['pay',100*RB]])]);
-C('D04','admin','Iuran BPJS','Iuran bulanan, demi ketenangan.',[['pay',150*RB],['hap',1]]);
-C('D05','admin','Balik Nama Motor','Motor bekas, dokumen penuh kejutan.',[['pay',400*RB]]);
-C('D06','admin','Surat Domisili','Butuh tiga tanda tangan dan satu Pak RT yang sedang mudik.',[['hap',-4]]);
-C('D07','admin','Bikin Paspor','Siapa tahu tahun ini benar-benar ke luar negeri.',null,[O('Bikin paspor',[['pay',650*RB],['hap',3]]),O('Nanti saja',[])]);
-C('D08','admin','Pajak Bumi dan Bangunan','Surat PBB datang untuk semua properti milikmu.',[['pbb']]);
-
-// DARURAT
-C('E01','darurat','Sakit Gigi','Gigi geraham protes setelah es teh setiap hari.',[['payE',1200*RB],['hap',-3]]);
-C('E02','darurat','Demam Berdarah','Opname tiga hari. Nyamuk tidak pilih-pilih.',[['payE',4*JT],['skip',1]]);
-C('E03','darurat','Kecelakaan Kecil','Spion patah, lutut lecet, dompet ikut terluka.',[['payE',2500*RB],['hap',-5]]);
-C('E04','darurat','Kompor Meledak','Dapur gosong, tidak ada yang terluka. Untung.',[['payE',3*JT]]);
-C('E05','darurat','Motor Dicuri','Dikunci ganda, tetap hilang.',[['payE',3500*RB],['hap',-8]]);
-C('E06','darurat','Kulkas Mati','Stok makanan sebulan harus habis malam ini.',[['payE',2*JT]]);
-
-// SPESIAL
-C('S01','spesial','Harbolnas','Hari belanja nasional. Semua orang mendadak hemat... besok.',null,[O('Ikut belanja',[['spend',800*RB],['hap',6],['careerbonus','seller',3*JT]]),O('Tahan diri',[['careerbonus','seller',3*JT]])]);
-C('S02','spesial','Musim Hujan','Semua pemain basah kuyup di jalan pulang.',[['allhap',-3]]);
-C('S03','spesial','Lomba 17-an','Panjat pinang, balap karung, dan tawa satu kampung.',[['allhap',5],['hap',3]]);
-C('S04','spesial','Rupiah Melemah','Kurs naik, harga barang ikut menyesuaikan.',[['market','*',-1500],['infl',300]]);
-C('S05','spesial','Pasar Bullish','Semua grafik hijau. Semua orang tiba-tiba jadi investor.',[['market','*',1800]]);
-C('S06','spesial','Car Free Day','Jalan kaki santai, jajan cilok dan es doger.',[['hap',6],['pay',50*RB]]);
-C('S07','spesial','Arisan RT Jackpot','Kamu menang arisan. Setiap pemain lain menyetor Rp300 ribu.',[['collect',300*RB]]);
-C('S08','spesial','Tanggal Muda','Semua merasa kaya untuk tiga hari.',[['allhap',4],['again']],null);
-C('X01','fixed','KRL Jam Sibuk','Gerbong penuh, aroma campur aduk, kaki tidak menapak lantai.',null,[O('Desak-desakan',[['hap',-6]]),O('Naik ojol saja',[['pay',150*RB]])]);
-
-const DECK_CATS = ['peluang', 'apes', 'realita', 'gaya', 'keuangan', 'keluarga', 'admin', 'darurat', 'spesial'];
-
-// ---------- secret goals ----------
-const GOALS = {
-  bebasutang: { name: 'Bebas Utang', desc: 'Selesai tanpa utang sepeser pun.', test: (p, nw) => p.debt === 0 },
-  juragan:    { name: 'Juragan Properti', desc: 'Punya kos-kosan, rumah, atau tanah di akhir game.', test: p => p.assets.some(a => ['kos', 'rumah', 'tanah'].includes(a.k)) },
-  darurat:    { name: 'Dana Darurat Aman', desc: 'Dana darurat minimal Rp8 juta.', test: p => p.sav >= 8 * JT },
-  bahagia:    { name: 'Hidup Bahagia', desc: 'Kebahagiaan minimal 80.', test: p => p.hap >= 80 },
-  naik:       { name: 'Naik Jabatan', desc: 'Dapat promosi minimal sekali.', test: p => p.promos >= 1 },
-  kolektor:   { name: 'Kolektor Aset', desc: 'Punya minimal 3 aset.', test: p => p.assets.length >= 3 },
-  sultan:     { name: 'Sultan Muda', desc: 'Kekayaan bersih minimal Rp30 juta.', test: (p, nw) => nw >= 30 * JT },
-  hemat:      { name: 'Anti Ribet', desc: 'Uang tunai + tabungan minimal Rp20 juta.', test: p => p.cash + p.sav >= 20 * JT },
-};
-
-const BOTS = [['Pak RT', 8], ['Mbak Kasir', 2], ['Bang Ojol', 5], ['Tante Arisan', 11], ['Om Startup', 4], ['Dek Magang', 1]];
-const CHAT_PRESETS = ['Halo semua! 👋', 'Gas! 🔥', 'Sabar ya, lagi mikir 🤔', 'Wkwkwk 😂', 'Tanggal tua nih 😭', 'Cuan! 💸', 'Yah apes… 🌧️', 'GG! 🤝', 'Ayo siap-siap!', 'Bentar, sinyal jelek 📶'];
+const CHAT_PRESETS = ['Hi everyone! 👋', 'Let’s go! 🔥', 'Hold on, thinking 🤔', 'LOL 😂', 'End of the month… 😭', 'Cuan! 💸', 'Ouch… 🌧️', 'GG! 🤝', 'Get ready!', 'Bad signal 📶'];
 const AVATARS = ['🐱', '🦊', '🐸', '🐼', '🦉', '🐯', '🐨', '🐵', '🐔', '🦆', '🐙', '🐌'];
+const PCOLORS = ['#FFBE1A', '#2FB3A3', '#F07EB0', '#6C8EEA', '#F28A45', '#9B6BD6'];
+const BOTS = [['Pak RT', 8], ['Mbak Kasir', 2], ['Bang Ojol', 5], ['Tante Arisan', 11], ['Om Startup', 4], ['Dek Magang', 1]];
 
-// ================= state helpers =================
-function log(g, pid, t, d) { g.log.push({ n: g.turnNo || 0, p: pid || null, t, d: d || 0 }); if (g.log.length > MAX_LOG) g.log.splice(0, g.log.length - MAX_LOG); }
-function P(g, pid) { const p = g.ps?.[pid]; if (!p) fail('Pemain tidak ditemukan.'); return p; }
-const nameOf = (g, pid) => (g.players?.find(x => x.id === pid)?.nick) || g.ps?.[pid]?.nick || 'Pemain';
-const avOf = (g, pid) => { const v = g.players?.find(x => x.id === pid)?.av ?? g.ps?.[pid]?.av ?? 0; return AVATARS[v] || AVATARS[0]; };
-function hapAdd(g, pid, n) { const p = g.ps[pid]; const b = p.hap; p.hap = Math.max(0, Math.min(100, p.hap + n)); return p.hap - b; }
-function creditLimit(p) { return Math.max(20 * JT, p.sal * 4); }
-function netWorth(g, p) { return p.cash + p.sav + p.assets.reduce((s, a) => s + assetValue(g, a.k), 0) - p.debt; }
-function gain(g, pid, amt, why) { if (amt <= 0) return; g.ps[pid].cash += amt; log(g, pid, why, amt); }
-
-// Mandatory charge. Pays now if possible; otherwise queues a payment the player must settle.
-function charge(g, pid, amt, why, emerg) {
-  const p = g.ps[pid]; amt = Math.trunc(amt); if (amt <= 0) return;
-  if (emerg && p.ins) { const cut = fl1k(amt / 2); amt -= cut; log(g, pid, `Asuransi menanggung ${rp(cut)}`); }
-  if (emerg && p.sav > 0) { const s = Math.min(p.sav, amt); p.sav -= s; amt -= s; log(g, pid, `Dana darurat dipakai ${rp(s)} (${why})`); if (amt <= 0) return; }
-  if (p.cash >= amt) { p.cash -= amt; log(g, pid, `Bayar ${why}`, -amt); return; }
-  g.q.unshift({ k: 'pay', amt, why });
-}
-
-function setCareer(p, key) { const c = CAREERS[key]; p.career = key; p.sal = c.sal; p.liv = c.liv; }
-function promote(g, pid) {
-  const p = g.ps[pid], c = CAREERS[p.career];
-  if (p.career === 'pencari') { newJob(g, pid); return; }
-  if (c.promo) { const old = c.name; setCareer(p, c.promo); p.promos++; hapAdd(g, pid, 6); log(g, pid, `Promosi! ${old} → ${CAREERS[p.career].name}`); return; }
-  if (c.up) { const inc = fl1k(p.sal * c.up / 100); p.sal += inc; p.promos++; hapAdd(g, pid, 5); log(g, pid, `Naik level! Gaji pokok +${rp(inc)}`); return; }
-}
-function newJob(g, pid) {
-  const p = g.ps[pid];
-  const pool = STARTER_CAREERS.filter(k => k !== p.career);
-  const k = pool[rnd(pool.length)]; setCareer(p, k); hapAdd(g, pid, 4);
-  log(g, pid, `Pindah kerja jadi ${CAREERS[k].name}`);
-}
-function layoff(g, pid, list, elseHap) {
-  const p = g.ps[pid];
-  if (list.includes(p.career) && !CAREERS[p.career].safe) {
-    const pes = p.sal; const old = CAREERS[p.career].name; setCareer(p, 'pencari'); hapAdd(g, pid, -10);
-    gain(g, pid, pes, `Kena PHK dari ${old}. Pesangon`);
-  } else { if (elseHap) hapAdd(g, pid, elseHap); log(g, pid, 'Aman dari PHK, tapi ikut deg-degan.'); }
-}
-function addAsset(g, pid, k, how) { g.ps[pid].assets.push({ k, id: mkId(6) }); log(g, pid, `${how} ${ASSETS[k].name}`); }
-
-function optNeed(fx) { let n = 0; for (const f of fx) { if (f[0] === 'spend' || f[0] === 'save' || f[0] === 'gamble') n += f[1]; } return n; }
-
-function runFx(g, pid, fx, title) {
-  const p = g.ps[pid];
-  for (const f of fx) {
-    const [op, a, b] = f;
-    switch (op) {
-      case 'cash': if (a > 0) gain(g, pid, a, title); else charge(g, pid, -a, title); break;
-      case 'pay': charge(g, pid, a, title); break;
-      case 'payE': charge(g, pid, a, title, true); break;
-      case 'hap': hapAdd(g, pid, a); break;
-      case 'sal%': gain(g, pid, fl1k(p.sal * a / 100), title); break;
-      case 'paysal%': charge(g, pid, Math.max(100 * RB, fl1k(p.sal * a / 100)), title); break;
-      case 'spend': if (p.cash < a) fail('Uang tunai tidak cukup.'); p.cash -= a; log(g, pid, title, -a); break;
-      case 'save': if (p.cash < a) fail('Uang tunai tidak cukup.'); p.cash -= a; p.sav += a; log(g, pid, `Menabung ${rp(a)} ke dana darurat`); break;
-      case 'debt': p.debt += a; log(g, pid, `Utang bertambah ${rp(a)} (${title})`); break;
-      case 'loan': p.cash += a; p.debt += b; log(g, pid, `Pinjaman cair ${rp(a)}, utang +${rp(b)}`, a); break;
-      case 'skip': p.skip += a; log(g, pid, `Harus melewati ${a} giliran`); break;
-      case 'again': g.extra = true; break;
-      case 'promo': promote(g, pid); break;
-      case 'layoff': layoff(g, pid, a, b); break;
-      case 'newjob': newJob(g, pid); break;
-      case 'market': for (const k of (a === '*' ? Object.keys(ASSETS) : [a])) g.market[k] = Math.max(3000, Math.min(30000, g.market[k] + b)); break;
-      case 'infl': g.infl = Math.min(4000, g.infl + a); log(g, pid, `Inflasi naik. Biaya hidup semua pemain +${(g.infl / 100).toFixed(0)}% dari awal`); break;
-      case 'salup': { const inc = fl1k(p.sal * a / 100); p.sal += inc; log(g, pid, `Gaji pokok +${rp(inc)}`); break; }
-      case 'livup': { const inc = fl1k(p.liv * a / 100); p.liv = Math.max(1 * JT, p.liv + inc); log(g, pid, `Biaya hidup ${inc >= 0 ? '+' : ''}${rp(inc)} per gajian`); break; }
-      case 'asset': addAsset(g, pid, a, 'Dapat'); break;
-      case 'buy': { const v = assetValue(g, a); if (p.cash < v) fail('Uang tunai tidak cukup.'); p.cash -= v; log(g, pid, `Beli ${ASSETS[a].name}`, -v); addAsset(g, pid, a, 'Aset baru:'); break; }
-      case 'kpr': { const v = assetValue(g, a), dp = ce1k(v * ASSETS[a].kpr / 100); if (p.cash < dp) fail('DP tidak cukup.'); if (p.debt > creditLimit(p) / 2) fail('Bank menolak: utangmu terlalu besar.'); p.cash -= dp; p.debt += v - dp; log(g, pid, `KPR ${ASSETS[a].name}: DP dibayar, sisa jadi utang ${rp(v - dp)}`, -dp); addAsset(g, pid, a, 'Aset baru:'); if (a === 'rumah') hapAdd(g, pid, 10); break; }
-      case 'repay': { const n = Math.min(a, p.cash, p.debt); if (n > 0) { p.cash -= n; p.debt -= n; log(g, pid, 'Bayar utang', -n); } else log(g, pid, 'Tidak ada utang yang bisa dibayar.'); break; }
-      case 'ins': p.ins = true; break;
-      case 'savint': { const n = fl1k(p.sav * a / 100); if (n > 0) { p.sav += n; log(g, pid, `Bunga tabungan +${rp(n)}`); } else log(g, pid, 'Tabunganmu kosong, bunganya juga.'); break; }
-      case 'gamble': { if (p.cash < a) fail('Uang tunai tidak cukup.'); p.cash -= a; log(g, pid, title, -a); if (rnd(100) < 40) { gain(g, pid, b, 'Koinnya meroket! Jual di puncak'); hapAdd(g, pid, 6); } else { hapAdd(g, pid, -8); log(g, pid, 'Koinnya anjlok 90%. Uangnya tinggal kenangan.'); } break; }
-      case 'allhap': for (const id of g.order) hapAdd(g, id, a); log(g, pid, `Semua pemain: kebahagiaan ${a > 0 ? '+' : ''}${a}`); break;
-      case 'collect': { let tot = 0; for (const id of g.order) { if (id === pid) continue; const o = g.ps[id]; const n = Math.min(a, o.cash); o.cash -= n; tot += n; } p.cash += tot; log(g, pid, 'Terima setoran arisan dari pemain lain', tot); break; }
-      case 'pbb': { const tot = p.assets.filter(x => ['rumah', 'kos', 'tanah'].includes(x.k)).reduce((s, x) => s + assetValue(g, x.k), 0); const n = ce1k(tot / 200); if (n > 0) charge(g, pid, n, 'PBB'); else { log(g, pid, 'Belum punya properti. PBB-nya nol, harga dirinya juga.'); } break; }
-      case 'msg': log(g, pid, a); break;
-      case 'careerbonus': if (p.career === a) gain(g, pid, b, `Bonus ${CAREERS[a].name}`); break;
-      default: fail('Efek kartu tidak dikenal: ' + op);
-    }
+// How a card reaches players, for the badge on the card: 'you' | 'some' | 'all', and 'good' | 'bad' | 'mixed' | 'choice'.
+function cardMeta(c) {
+  if (c.ch) return { scope: 'you', tone: 'choice' };
+  let scope = 'you', pos = false, neg = false;
+  for (const [op, a, b] of c.fx) {
+    if (['allcash', 'allpay', 'allrepairs', 'mortpay', 'poorgift', 'richtax', 'each', 'collect'].includes(op)) scope = 'all';
+    else if (['jobcash', 'jobpay', 'regionbonus', 'regionpay', 'typepay', 'ownerpay'].includes(op) && scope !== 'all') scope = 'some';
+    if (['cash', 'allcash', 'perprop', 'regionbonus', 'collect', 'poorgift'].includes(op) || (op === 'jobcash' && b > 0)) pos = true;
+    if (['pay', 'allpay', 'allrepairs', 'repairs', 'mortpay', 'regionpay', 'typepay', 'ownerpay', 'jobpay', 'each', 'jam', 'back'].includes(op) || (op === 'jobcash' && b < 0)) neg = true;
+    if (op === 'richtax') { pos = true; neg = true; }
   }
+  return { scope, tone: pos && neg ? 'mixed' : pos ? 'good' : neg ? 'bad' : 'mixed' };
 }
 
-// ================= turn flow =================
-function drawCard(g, cat) {
-  const ids = Object.keys(CARDS).filter(k => CARDS[k].cat === cat);
-  let d = g.decks[cat]; if (!d || d.i >= d.o.length) { d = g.decks[cat] = { o: shuffle(ids), i: 0 }; }
+// ================= helpers =================
+function log(g, pid, t, d) { g.log.push({ n: g.turnNo || 0, p: pid || null, t, d: d || 0 }); if (g.log.length > MAX_LOG) g.log.splice(0, g.log.length - MAX_LOG); }
+const nameOf = (g, pid) => (g.players?.find(x => x.id === pid)?.nick) || g.ps?.[pid]?.nick || 'Player';
+const avOf = (g, pid) => AVATARS[g.players?.find(x => x.id === pid)?.av ?? g.ps?.[pid]?.av ?? 0] || AVATARS[0];
+const activeIds = g => g.order.filter(id => !g.ps[id].out);
+const owned = (g, pid) => BUYABLE.filter(i => g.props[i].o === pid);
+const ownsGroup = (g, pid, grp) => groupOf(grp).every(i => g.props[i].o === pid);
+const mineIn = (g, pid, grp) => groupOf(grp).filter(j => g.props[j].o === pid);
+const hasTag = (g, pid, tags) => (J(g, pid).tags || []).some(t => tags.includes(t));
+function propValue(g, i) { const pr = g.props[i]; return (pr.m ? BOARD[i].price - (pr.mv || BOARD[i].price / 2) : BOARD[i].price) + (BOARD[i].t === 'city' ? pr.h * houseCost(i) : 0); }
+function netWorth(g, pid) { const p = g.ps[pid]; return p.cash + owned(g, pid).reduce((s, i) => s + propValue(g, i), 0) - (p.owe || 0); }
+function rentFor(g, i, dice) {
+  const s = BOARD[i], pr = g.props[i]; if (!pr.o || pr.m) return 0;
+  if (s.t === 'city') return pr.h ? rentTable(i)[pr.h] : baseRent(i) * (ownsGroup(g, pr.o, s.g) ? 2 : 1);
+  if (s.t === 'transport') { const n = BUYABLE.filter(j => BOARD[j].t === 'transport' && g.props[j].o === pr.o).length; return 2500 * RB * 2 ** (n - 1); }
+  if (s.t === 'utility') { const n = BUYABLE.filter(j => BOARD[j].t === 'utility' && g.props[j].o === pr.o).length; return (dice || 7) * (n === 2 ? 1 * JT : 400 * RB); }
+  return 0;
+}
+// job-adjusted prices
+const buyPrice = (g, pid, i) => ce1k(BOARD[i].price * (100 - (J(g, pid).buy || 0)) / 100);
+const buildCost = (g, pid, i) => ce1k(houseCost(i) * (100 - (J(g, pid).build || 0)) / 100);
+const mortValueFor = (g, pid, i) => ce1k(BOARD[i].price * (J(g, pid).mortgage || 50) / 100);
+const unmortCost = (g, pid, i) => { const pr = g.props[i], v = pr.mv || BOARD[i].price / 2; return J(g, pid).mortgage ? v : ce1k(v * 1.1); };
+const takeoverPrice = (g, pid, i) => ce1k(BOARD[i].price * (J(g, pid).take || 150) / 100);
+function rentDue(g, payer, i, dice) {
+  const s = BOARD[i], owner = g.props[i].o; let r = rentFor(g, i, dice);
+  const oj = J(g, owner), pj = J(g, payer);
+  if (oj.tourism && (TOURIST.includes(s.n) || s.t === 'transport')) r = r * (100 + oj.tourism) / 100;
+  if (pj.rentPay) r = r * (100 + pj.rentPay) / 100;
+  return ce1k(r);
+}
+
+// money moves
+function transfer(g, from, to, amt, why) {
+  const p = g.ps[from]; p.cash -= amt;
+  if (to === 'fund') { g.fund += amt; log(g, from, `Paid ${why} (to the Community Fund)`, -amt); }
+  else if (to && g.ps[to]) { g.ps[to].cash += amt; log(g, from, `Paid ${why} to ${nameOf(g, to)}`, -amt); }
+  else log(g, from, `Paid ${why}`, -amt);
+}
+// Mandatory payment by the active player: pays now, or queues a debt the player must settle.
+function charge(g, pid, amt, why, to, rent) {
+  amt = Math.trunc(amt); if (amt <= 0) return;
+  const p = g.ps[pid];
+  if (p.cash >= amt) { transfer(g, pid, to, amt, why); if (rent) { p.st.rentOut += amt; g.ps[to].st.rentIn += amt; } return; }
+  g.q.unshift({ k: 'debt', amt, why, to: to || 'bank', rent: !!rent });
+}
+// A payment by any player: the active player may go into debt; others pay what they can.
+function payBy(g, actor, id, amt, why, to = 'fund') {
+  amt = ce1k(amt); if (amt <= 0) return;
+  if (id === actor) { charge(g, id, amt, why, to); return; }
+  const n = Math.min(amt, g.ps[id].cash); if (n <= 0) return;
+  g.ps[id].cash -= n; if (to === 'fund') g.fund += n; else if (g.ps[to]) g.ps[to].cash += n;
+  log(g, id, `Paid ${why}`, -n);
+}
+function gain(g, pid, amt, why) { amt = Math.trunc(amt); if (amt > 0) { g.ps[pid].cash += amt; log(g, pid, why, amt); } }
+
+// One move record per action: the token's start tile and every tile it then visits (teleports listed in jumps).
+function track(g, pid, tile, jump) {
+  if (!g.move || g.move.a !== g.actN || g.move.p !== pid) g.move = { p: pid, from: g.ps[pid].pos, path: [], jumps: [], a: g.actN, k: mkId(6) };
+  if (tile === undefined) return;
+  if (jump) g.move.jumps.push(g.move.path.length);
+  g.move.path.push(tile);
+}
+const jamFee = (g, pid) => J(g, pid).quickJam ? 0 : JAM_FEE;
+function goJam(g, pid, why) {
+  const p = g.ps[pid]; track(g, pid, JAM_POS, true);
+  p.pos = JAM_POS; p.jam = J(g, pid).quickJam ? 1 : MAX_JAM_TURNS; p.doubles = 0; p.st.jams++; g.extra = false;
+  log(g, pid, `${why}: stuck in the Traffic Jam`);
+}
+function passPayday(g, pid) {
+  const p = g.ps[pid], job = J(g, pid); p.laps++;
+  let sal = p.sal; if (job.var) sal = ce1k(sal * (job.var[0] + rnd(job.var[1] - job.var[0] + 1)) / 100);
+  if (sal > 0) gain(g, pid, sal, `PAYDAY! ${job.name || 'Salary'}`); else log(g, pid, `PAYDAY… but ${job.name || 'the job'} paid nothing this month`);
+  if (job.perProp) gain(g, pid, owned(g, pid).length * job.perProp * JT, 'Shop sales from your properties');
+  if (job.tutor) { let tot = 0; for (const id of activeIds(g)) { if (id === pid) continue; const n = Math.min(job.tutor * JT, g.ps[id].cash); g.ps[id].cash -= n; tot += n; } if (tot) { p.cash += tot; log(g, pid, 'Private tutoring fees from every player', tot); } }
+  if (job.grow) { p.sal += job.grow * JT; log(g, pid, `Career growth: salary is now ${rpShort(p.sal)}`); }
+  if (job.life) charge(g, pid, job.life * JT, 'living costs', 'bank');
+  if (p.owe) { const o = p.owe; p.owe = 0; charge(g, pid, o, 'loan repayment', 'bank'); }
+}
+function walk(g, pid, steps) { // forward (steps > 0) or back
+  const p = g.ps[pid]; let pos = p.pos; track(g, pid);
+  const dir = steps > 0 ? 1 : -1;
+  for (let i = 0; i < Math.abs(steps); i++) { pos = (pos + dir + BOARD.length) % BOARD.length; track(g, pid, pos); if (pos === 0 && dir > 0) passPayday(g, pid); }
+  p.pos = pos;
+  log(g, pid, `${steps > 0 ? 'Moved' : 'Moved back'} ${Math.abs(steps)} to ${BOARD[pos].n}`);
+  land(g, pid);
+}
+function advanceTo(g, pid, idx) { const p = g.ps[pid]; const steps = (idx - p.pos + BOARD.length) % BOARD.length || BOARD.length; walk(g, pid, steps); }
+function land(g, pid) {
+  const p = g.ps[pid], i = p.pos, s = BOARD[i];
+  if (['city', 'transport', 'utility'].includes(s.t)) {
+    const pr = g.props[i];
+    if (!pr.o) { g.q.push({ k: 'buy', i }); return; }
+    if (pr.o === pid) { log(g, pid, `Visited own property ${s.n}`); return; }
+    if (pr.m) { log(g, pid, `${s.n} is mortgaged: no rent`); return; }
+    const r = rentDue(g, pid, i, g.dice ? g.dice[0] + g.dice[1] : 7) * (g.doubleRent ? 2 : 1);
+    g.doubleRent = false;
+    charge(g, pid, r, `rent for ${s.n}`, pr.o, true);
+    if (s.t === 'city' && !J(g, pr.o).protect && mineIn(g, pr.o, s.g).every(j => g.props[j].h === 0)) g.q.push({ k: 'takeover', i, price: takeoverPrice(g, pid, i) }); // optional, after the rent
+    return;
+  }
+  if (['event', 'reality', 'market'].includes(s.t) && J(g, pid).cardSpace) gain(g, pid, J(g, pid).cardSpace * JT, 'Warung customers at the card space');
+  if (s.t === 'event' || s.t === 'reality') { g.q.push({ k: 'card', id: draw(g, s.t) }); return; }
+  if (s.t === 'market') { log(g, pid, 'Night Market: hearing the latest news'); g.q.push({ k: 'card', id: draw(g, 'reality') }); return; }
+  if (s.t === 'arisan') { let tot = 0; for (const id of activeIds(g)) { if (id === pid) continue; const n = Math.min(1 * JT, g.ps[id].cash); g.ps[id].cash -= n; tot += n; } p.cash += tot; log(g, pid, 'Arisan Night: your name was drawn', tot); return; }
+  if (s.t === 'gojam') { goJam(g, pid, 'Wrong turn'); return; }
+  if (s.t === 'rest') { const f = g.fund; g.fund = 0; if (f > 0) gain(g, pid, f, 'Rest Area: collected the Community Fund'); else log(g, pid, 'Rest Area: the Community Fund is empty'); return; }
+  if (s.t === 'jam') { log(g, pid, 'Just passing the Traffic Jam'); return; }
+}
+function draw(g, deck) {
+  let d = g.decks[deck]; const ids = Object.keys(CARDS).filter(k => CARDS[k].deck === deck);
+  if (!d || d.i >= d.o.length) d = g.decks[deck] = { o: shuffle(ids), i: 0 };
   return d.o[d.i++];
 }
-function payday(g, pid) {
-  const p = g.ps[pid], c = CAREERS[p.career]; p.laps++;
-  let sal = p.sal;
-  if (c.var) { const pct = c.var[0] + rnd(c.var[1] - c.var[0] + 1); sal = fl1k(p.sal * pct / 100); }
-  const inc = p.assets.reduce((s, a) => s + ASSETS[a.k].inc, 0);
-  p.cash += sal + inc; hapAdd(g, pid, 4);
-  log(g, pid, `GAJIAN! Gaji ${rp(sal)}${inc ? ` + pendapatan aset ${rp(inc)}` : ''}`, sal + inc);
-  if (p.debt > 0) {
-    const bunga = ce1k(p.debt * 3 / 100); p.debt += bunga;
-    const cic = Math.min(p.debt, Math.max(500 * RB, ce1k(p.debt / 10)));
-    if (p.cash >= cic) { p.cash -= cic; p.debt -= cic; log(g, pid, `Bunga utang ${rp(bunga)}; cicilan dibayar`, -cic); }
-    else { const den = ce1k(p.debt * 2 / 100); p.debt += den; hapAdd(g, pid, -5); log(g, pid, `Cicilan nunggak! Bunga ${rp(bunga)} + denda ${rp(den)} masuk utang`); }
-  }
-  if (p.debt > creditLimit(p)) bankrupt(g, pid);
-  const liv = fl1k(p.liv * (10000 + g.infl) / 10000);
-  charge(g, pid, liv, 'biaya hidup bulanan');
-}
-function bankrupt(g, pid) {
-  const p = g.ps[pid]; let got = 0;
-  for (const a of p.assets) got += fl1k(assetValue(g, a.k) * 70 / 100);
-  p.assets = []; p.cash += got; const pay = Math.min(p.cash, p.debt); p.cash -= pay; p.debt -= pay;
-  const lim = creditLimit(p); if (p.debt > lim) p.debt = lim;
-  p.bk++; p.skip += 1; hapAdd(g, pid, -15);
-  log(g, pid, `BANGKRUT! Utang melewati batas. Semua aset dilelang (${rp(got)}), satu giliran hilang.`);
-}
-function moveSteps(g, pid, steps) {
-  const p = g.ps[pid], from = p.pos; let passes = 0, pos = from;
-  for (let i = 0; i < steps; i++) { pos = (pos + 1) % BOARD.length; if (pos === 0) passes++; }
-  p.pos = pos; g.move = { p: pid, from, to: pos, steps, k: mkId(6) };
-  log(g, pid, `Maju ${steps} langkah ke ${BOARD[pos].n}`);
-  for (let i = 0; i < passes; i++) payday(g, pid);
-  resolveSpace(g, pid, pos);
-}
-function resolveSpace(g, pid, pos) {
-  const s = BOARD[pos];
-  if (s.t === 'start') { gain(g, pid, 500 * RB, 'Mendarat tepat di GAJIAN: bonus kehadiran'); return; }
-  if (s.t === 'kerja') { g.q.push({ k: 'career' }); return; }
-  if (s.t === 'invest') { const ks = shuffle(Object.keys(ASSETS)).slice(0, 3); g.q.push({ k: 'invest', offers: ks }); return; }
-  if (s.t === 'rehat') { const h = hapAdd(g, pid, 10); const p = g.ps[pid]; if (p.cash >= 200 * RB) { p.cash -= 200 * RB; log(g, pid, `${s.n}: istirahat sejenak, kebahagiaan +${h}`, -200 * RB); } else log(g, pid, `${s.n}: istirahat gratis, kebahagiaan +${h}`); return; }
-  if (s.t === 'fixed') { g.q.push({ k: 'card', id: s.card }); return; }
-  g.q.push({ k: 'card', id: drawCard(g, s.t) });
-}
 
-// Options for the item at the front of the queue. Same function drives UI and validation.
+function runFx(g, pid, fx, title) {
+  const p = g.ps[pid], job = J(g, pid);
+  const cardCash = (amt, tag) => { let n = amt * (100 + (job.cardPos || 0)) / 100; if (tag === 'bonus' && job.union) n += job.union * JT; return ce1k(n); };
+  const cardPay = (id, amt, tag, extraPct = 0) => { const jj = J(g, id); if (tag && (jj.immune || []).includes(tag)) return 0; if (tag === 'layoff' && jj.safe) return 0; return ce1k(amt * (100 + (jj.cardNeg || 0) + extraPct) / 100); };
+  for (const [op, a, b, c] of fx) {
+    switch (op) {
+      case 'cash': gain(g, pid, cardCash(a, b), title); break;
+      case 'pay': { const n = cardPay(pid, a, b); if (n) charge(g, pid, n, title, 'fund'); else log(g, pid, `${job.name}: not affected by ${title}`); break; }
+      case 'each': for (const id of activeIds(g)) if (id !== pid) charge(g, pid, a, title, id); break;
+      case 'collect': { let tot = 0; for (const id of activeIds(g)) { if (id === pid) continue; const n = Math.min(a, g.ps[id].cash); g.ps[id].cash -= n; tot += n; } p.cash += tot; log(g, pid, `${title}: collected from every player`, tot); break; }
+      case 'allcash': for (const id of activeIds(g)) { const jj = J(g, id); gain(g, id, a + (b === 'bonus' && jj.union ? jj.union * JT : 0), title); } break;
+      case 'allpay': { log(g, null, `${title}: every player pays ${rpShort(a)}`); for (const id of activeIds(g)) payBy(g, pid, id, cardPay(id, a), title); break; }
+      case 'allrepairs': for (const id of activeIds(g)) { const n = owned(g, id).filter(i => BOARD[i].t === 'city').reduce((s, i) => s + (g.props[i].h === 5 ? b : g.props[i].h * a), 0); if (n) payBy(g, pid, id, cardPay(id, n, null, J(g, id).repairs || 0), title); } break;
+      case 'perprop': gain(g, pid, a * owned(g, pid).length, title); if (!owned(g, pid).length) log(g, pid, 'No properties yet, so nothing to collect'); break;
+      case 'repairs': { const n = owned(g, pid).filter(i => BOARD[i].t === 'city').reduce((s, i) => s + (g.props[i].h === 5 ? b : g.props[i].h * a), 0); if (n) charge(g, pid, cardPay(pid, n, null, job.repairs || 0), title, 'fund'); else log(g, pid, 'No buildings, nothing to fix'); break; }
+      case 'jobcash': for (const id of activeIds(g)) { if (!hasTag(g, id, a)) continue; if (b > 0) gain(g, id, b, `${title} (${J(g, id).name})`); else { const n = cardPay(id, -b, c); if (n) payBy(g, pid, id, n, `${title} (${J(g, id).name})`); else log(g, id, `${J(g, id).name}: protected from ${title}`); } } break;
+      case 'jobpay': for (const id of activeIds(g)) if (!hasTag(g, id, a)) payBy(g, pid, id, cardPay(id, b), title); break;
+      case 'regionbonus': for (const id of activeIds(g)) { const n = mineIn(g, id, a).filter(i => !g.props[i].m).length; if (n) gain(g, id, n * b, title); } break;
+      case 'regionpay': for (const id of activeIds(g)) { const n = mineIn(g, id, a).length; if (n) payBy(g, pid, id, cardPay(id, n * b), title); } break;
+      case 'typepay': for (const id of activeIds(g)) { const n = owned(g, id).filter(i => BOARD[i].t === a).length; if (n) payBy(g, pid, id, cardPay(id, n * b), title); } break;
+      case 'ownerpay': { const o = g.props[a]?.o; if (o && !g.ps[o].out) payBy(g, pid, o, cardPay(o, b), title); else log(g, null, `${BOARD[a].n} has no owner, nobody pays`); break; }
+      case 'mortpay': for (const id of activeIds(g)) { const n = owned(g, id).filter(i => g.props[i].m).length; if (n) payBy(g, pid, id, cardPay(id, n * a), title); } break;
+      case 'poorgift': { const ids = activeIds(g).sort((x, y) => netWorth(g, x) - netWorth(g, y)); gain(g, ids[0], a, `${title}: poorest player`); break; }
+      case 'richtax': { const ids = activeIds(g).sort((x, y) => netWorth(g, y) - netWorth(g, x)), rich = ids[0], poor = ids[ids.length - 1]; if (rich === poor) break; payBy(g, pid, rich, a, `${title} to ${nameOf(g, poor)}`, poor); if (rich !== pid) log(g, poor, `${title}: received help from ${nameOf(g, rich)}`); break; }
+      case 'goto': advanceTo(g, pid, a); break;
+      case 'back': walk(g, pid, -a); break;
+      case 'nearest': { let i = p.pos; do { i = (i + 1) % BOARD.length; } while (BOARD[i].t !== 'transport'); g.doubleRent = true; advanceTo(g, pid, i); g.doubleRent = false; break; }
+      case 'jam': goJam(g, pid, title); break;
+      case 'jamcard': p.cards++; log(g, pid, 'Kept a Shortcut Card'); break;
+      case 'loan': p.cash += a; p.owe = (p.owe || 0) + b; log(g, pid, `Loan received; repay ${rpShort(b)} at next Payday`, a); break;
+      case 'gamble': { if (p.cash < a) fail('Not enough cash.'); p.cash -= a; log(g, pid, title, -a); if (rnd(100) < c) gain(g, pid, b, 'It paid off! Cashed out'); else log(g, pid, 'It flopped. The money is gone.'); break; }
+      default: fail('Unknown card effect: ' + op);
+    }
+  }
+}
+function optNeed(fx) { let n = 0; for (const f of fx) if (f[0] === 'gamble') n += f[1]; return n; }
+
+// Options for the decision at the front of the queue. Drives both the UI and validation.
 function optionsFor(g, pid, it) {
   const p = g.ps[pid], out = [];
+  if (it.k === 'buy') {
+    const s = BOARD[it.i], price = buyPrice(g, pid, it.i);
+    out.push({ l: `Buy ${s.n}`, sub: price !== s.price ? `${rp(price)} (agent discount)` : rp(price), ok: p.cash >= price, run: () => { p.cash -= price; g.props[it.i].o = pid; log(g, pid, `Bought ${s.n}`, -price); } });
+    out.push({ l: 'Not now', sub: 'Leave it for someone else', ok: true, def: true, run: () => log(g, pid, `Passed on ${s.n}`) });
+    return out;
+  }
+  if (it.k === 'takeover') {
+    const s = BOARD[it.i], pr = g.props[it.i], owner = pr.o;
+    const valid = owner && owner !== pid && !g.ps[owner].out && !pr.m && !J(g, owner).protect && mineIn(g, owner, s.g).every(j => g.props[j].h === 0);
+    out.push({ kind: 'take', l: `Take over ${s.n}`, sub: valid ? `Pay ${rp(it.price)} to ${nameOf(g, owner)}` : 'No longer available', ok: valid && p.cash >= it.price, run: () => { transfer(g, pid, owner, it.price, `takeover of ${s.n}`); pr.o = pid; log(g, pid, `Took over ${s.n} from ${nameOf(g, owner)}`); } });
+    out.push({ l: 'No thanks', sub: 'Keep your cash', ok: true, def: true, run: () => {} });
+    return out;
+  }
   if (it.k === 'card') {
     const c = CARDS[it.id];
-    if (!c.ch) { out.push({ l: 'Oke', ok: true, run: () => runFx(g, pid, c.fx, c.title) }); return out; }
-    c.ch.forEach(o => {
-      const need = optNeed(o.fx);
-      let ok = p.cash >= need, why = ok ? '' : `Butuh ${rp(need)} tunai`;
-      for (const f of o.fx) {
-        if (f[0] === 'buy') { const v = assetValue(g, f[1]); if (p.cash < v) { ok = false; why = `Butuh ${rp(v)} tunai`; } }
-        if (f[0] === 'kpr') { const v = assetValue(g, f[1]), dp = ce1k(v * ASSETS[f[1]].kpr / 100); if (p.cash < dp) { ok = false; why = `DP ${rp(dp)}`; } else if (p.debt > creditLimit(p) / 2) { ok = false; why = 'Bank menolak: utang terlalu besar'; } }
-        if (f[0] === 'repay' && p.debt === 0) { ok = false; why = 'Kamu tidak punya utang'; }
-        if (f[0] === 'loan' && p.debt + f[2] > creditLimit(p)) { ok = false; why = 'Melebihi batas utang'; }
-      }
-      out.push({ l: o.l, sub: why || fxSummary(g, pid, o.fx), ok, run: () => { log(g, pid, `${c.title}: ${o.l}`); runFx(g, pid, o.fx, c.title); if (o.m) log(g, pid, o.m); } });
-    });
+    if (!c.ch) { out.push({ l: 'OK', ok: true, def: true, run: () => runFx(g, pid, c.fx, c.title) }); return out; }
+    c.ch.forEach((o, idx) => { const need = optNeed(o.fx); out.push({ l: o.l, sub: need > p.cash ? `Needs ${rp(need)} cash` : fxSummary(o.fx), ok: p.cash >= need, def: idx === c.ch.length - 1, run: () => { log(g, pid, `${c.title}: ${o.l}`); runFx(g, pid, o.fx, c.title); if (o.m) log(g, pid, o.m); } }); });
     return out;
   }
-  if (it.k === 'pay') {
+  if (it.k === 'debt') {
     const short = it.amt - p.cash;
-    out.push({ l: `Bayar ${rp(it.amt)}`, ok: short <= 0, sub: short > 0 ? `Kurang ${rp(short)}` : 'Uang cukup', run: () => { p.cash -= it.amt; log(g, pid, `Bayar ${it.why}`, -it.amt); } });
-    if (short > 0) {
-      const fee = ce1k(short / 10), lim = creditLimit(p);
-      out.push({ l: `Pinjam ${rp(short)}`, ok: p.debt + short + fee <= lim, sub: p.debt + short + fee <= lim ? `Utang +${rp(short + fee)} (biaya 10%)` : 'Melebihi batas utang', run: () => { p.debt += short + fee; p.cash += short; log(g, pid, `Pinjaman darurat ${rp(short)} (utang +${rp(short + fee)})`, short); p.cash -= it.amt; log(g, pid, `Bayar ${it.why}`, -it.amt); } });
-      p.assets.forEach((a, i) => { const v = fl1k(assetValue(g, a.k) * 80 / 100); out.push({ l: `Jual ${ASSETS[a.k].name}`, ok: true, sub: `Dapat ${rp(v)} (80% nilai)`, run: () => { p.assets.splice(i, 1); gain(g, pid, v, `Jual cepat ${ASSETS[a.k].name}`); return 'keep'; } }); });
-      const pen = Math.max(5, Math.min(30, Math.ceil(short / (250 * RB))));
-      out.push({ l: 'Bayar semampunya', ok: true, def: true, sub: `Uang habis, kebahagiaan −${pen}`, run: () => { const c = p.cash; p.cash = 0; hapAdd(g, pid, -pen); log(g, pid, `Tak sanggup bayar ${it.why}. Bayar ${rp(c)} saja, sisanya ditanggung batin`, -c); } });
+    out.push({ kind: 'pay', l: `Pay ${rp(it.amt)}`, sub: short > 0 ? `Short by ${rp(short)}: raise cash below` : 'You have enough now', ok: short <= 0, run: () => { transfer(g, pid, it.to === 'bank' ? null : it.to, it.amt, it.why); if (it.rent) { p.st.rentOut += it.amt; g.ps[it.to].st.rentIn += it.amt; } } });
+    for (const i of owned(g, pid)) {
+      const s = BOARD[i], pr = g.props[i];
+      if (s.t === 'city' && pr.h > 0 && canSellHouse(g, pid, i)) out.push({ kind: 'sell', i, l: `Sell ${pr.h === 5 ? 'tower' : 'a house'} on ${s.n}`, sub: `+${rp(houseCost(i) / 2)}`, ok: true, run: () => { sellHouse(g, pid, i); return 'keep'; } });
+      else if (!pr.m && canMortgage(g, pid, i)) out.push({ kind: 'mort', i, l: `Mortgage ${s.n}`, sub: `+${rp(mortValueFor(g, pid, i))}`, ok: true, run: () => { mortgage(g, pid, i); return 'keep'; } });
     }
-    return out;
-  }
-  if (it.k === 'invest') {
-    it.offers.forEach(k => {
-      const v = assetValue(g, k), A = ASSETS[k];
-      out.push({ l: `Beli ${A.name}`, ok: p.cash >= v, sub: `${rp(v)}${A.inc ? ` · +${rpShort(A.inc)}/gajian` : ''}`, run: () => runFx(g, pid, [['buy', k]], A.name) });
-      if (A.kpr) { const dp = ce1k(v * A.kpr / 100); out.push({ l: `KPR ${A.name}`, ok: p.cash >= dp && p.debt <= creditLimit(p) / 2, sub: `DP ${rp(dp)}, sisa jadi utang`, run: () => runFx(g, pid, [['kpr', k]], A.name) }); }
-    });
-    out.push({ l: 'Lihat-lihat saja', ok: true, def: true, sub: 'Tidak membeli apa pun', run: () => log(g, pid, 'Cuma lihat-lihat investasi.') });
-    return out;
-  }
-  if (it.k === 'career') {
-    const c = CAREERS[p.career];
-    if (p.career === 'pencari') {
-      out.push({ l: 'Lamar kerja', ok: true, sub: `${c.chance}% peluang diterima`, run: () => { if (rnd(100) < c.chance) newJob(g, pid); else { hapAdd(g, pid, -5); log(g, pid, 'Lamaran ditolak. "Kami akan menghubungi Anda."'); } } });
-      out.push({ l: 'Kerja serabutan', ok: true, def: true, sub: '+Rp1jt, kebahagiaan −3', run: () => { gain(g, pid, 1 * JT, 'Kerja serabutan'); hapAdd(g, pid, -3); } });
-      return out;
-    }
-    const lembur = fl1k(p.sal * 25 / 100);
-    out.push({ l: 'Lembur', ok: true, sub: `+${rp(lembur)}, kebahagiaan −6`, run: () => { gain(g, pid, lembur, 'Uang lembur'); hapAdd(g, pid, -6); } });
-    out.push({ l: 'Kerja santai', ok: true, def: true, sub: 'Kebahagiaan +4', run: () => { hapAdd(g, pid, 4); log(g, pid, 'Kerja secukupnya, pulang tepat waktu.'); } });
-    if (c.promo || c.up) out.push({ l: 'Kejar promosi', ok: true, sub: `${c.chance}% berhasil, kebahagiaan −4`, run: () => { hapAdd(g, pid, -4); if (rnd(100) < c.chance) promote(g, pid); else log(g, pid, 'Promosi belum rezeki. Atasan bilang "tahun depan ya".'); } });
+    out.push({ kind: 'bk', l: 'Declare bankruptcy', sub: it.to !== 'bank' && it.to !== 'fund' ? `Everything goes to ${nameOf(g, it.to)}` : 'Your properties return to the bank', ok: true, bk: true, run: () => bankrupt(g, pid, it.to) });
     return out;
   }
   return out;
 }
-function fxSummary(g, pid, fx) {
+function fxSummary(fx) {
   const parts = [];
-  for (const [op, a, b] of fx) {
-    if (op === 'spend' || op === 'pay') parts.push(`−${rpShort(a)}`);
-    else if (op === 'cash') parts.push(a > 0 ? `+${rpShort(a)}` : `−${rpShort(-a)}`);
-    else if (op === 'hap') parts.push(`😊${a > 0 ? '+' : ''}${a}`);
-    else if (op === 'save') parts.push(`Tabung ${rpShort(a)}`);
-    else if (op === 'debt') parts.push(`Utang +${rpShort(a)}`);
-    else if (op === 'loan') parts.push(`+${rpShort(a)}, utang +${rpShort(b)}`);
-    else if (op === 'buy') parts.push(rp(assetValue(g, a)));
-    else if (op === 'kpr') parts.push(`DP ${rpShort(ce1k(assetValue(g, a) * ASSETS[a].kpr / 100))}`);
-    else if (op === 'repay') parts.push(`Utang −${rpShort(Math.min(a, g.ps[pid].debt))}`);
-    else if (op === 'skip') parts.push('Lewati giliran');
-    else if (op === 'salup') parts.push(`Gaji +${a}%`);
-    else if (op === 'livup') parts.push(`Biaya hidup ${a > 0 ? '+' : ''}${a}%`);
-    else if (op === 'paysal%') parts.push(`−${a}% gaji`);
-    else if (op === 'newjob') parts.push('Ganti karier');
-    else if (op === 'gamble') parts.push(`−${rpShort(a)}, 40% jadi ${rpShort(b)}`);
+  for (const [op, a, b, c] of fx) {
+    if (op === 'pay') parts.push(`−${rpShort(a)}`);
+    else if (op === 'cash') parts.push(`+${rpShort(a)}`);
+    else if (op === 'gamble') parts.push(`−${rpShort(a)}, ${c}% chance of ${rpShort(b)}`);
+    else if (op === 'loan') parts.push(`+${rpShort(a)} now, −${rpShort(b)} at Payday`);
+    else if (op === 'goto') parts.push(`go to ${BOARD[a].n}`);
+    else if (op === 'back') parts.push(`back ${a} spaces`);
+    else if (op === 'jam') parts.push('go to the Traffic Jam');
   }
   return parts.join(' · ');
 }
 
-function assertTurn(g, pid) {
-  if (g.status !== 'playing') fail('Game belum atau sudah tidak berjalan.');
-  if (g.order[g.turnIdx] !== pid) fail('Bukan giliranmu.');
+// ---------- property management ----------
+// Houses: own at least two cities of the color group; build evenly across the ones you own.
+// Apartment tower (5th level): own the whole group. Mortgaged cities can't be built on.
+function canBuild(g, pid, i) {
+  const s = BOARD[i], pr = g.props[i]; if (s.t !== 'city' || pr.o !== pid || pr.h >= 5 || pr.m) return false;
+  const mine = mineIn(g, pid, s.g); if (mine.length < 2 || mine.some(j => g.props[j].m)) return false;
+  if (pr.h === 4 && !ownsGroup(g, pid, s.g)) return false;
+  return pr.h <= Math.min(...mine.map(j => g.props[j].h));
 }
+function canSellHouse(g, pid, i) { const s = BOARD[i], pr = g.props[i]; if (s.t !== 'city' || pr.o !== pid || pr.h === 0) return false; return pr.h >= Math.max(...mineIn(g, pid, s.g).map(j => g.props[j].h)); }
+function canMortgage(g, pid, i) { const s = BOARD[i], pr = g.props[i]; if (pr.o !== pid || pr.m) return false; return s.t !== 'city' || mineIn(g, pid, s.g).every(j => g.props[j].h === 0); }
+function sellHouse(g, pid, i) { const pr = g.props[i], v = houseCost(i) / 2; pr.h--; g.ps[pid].cash += v; log(g, pid, `Sold a building on ${BOARD[i].n}`, v); }
+function mortgage(g, pid, i) { const v = mortValueFor(g, pid, i); g.props[i].m = true; g.props[i].mv = v; g.ps[pid].cash += v; log(g, pid, `Mortgaged ${BOARD[i].n}`, v); }
+function bankrupt(g, pid, to) {
+  const p = g.ps[pid];
+  for (const i of owned(g, pid)) { const pr = g.props[i]; if (pr.h) { p.cash += pr.h * houseCost(i) / 2; pr.h = 0; } }
+  const props = owned(g, pid), heir = to && g.ps[to] && !g.ps[to].out ? to : null;
+  if (heir) { g.ps[heir].cash += p.cash; for (const i of props) g.props[i].o = heir; log(g, pid, `BANKRUPT! Everything goes to ${nameOf(g, heir)}`, -p.cash); }
+  else { for (const i of props) g.props[i] = { o: null, h: 0, m: false }; log(g, pid, 'BANKRUPT! Properties return to the bank', -p.cash); }
+  p.cash = 0; p.out = true; p.outAt = g.turnNo; p.owe = 0; g.q = []; g.extra = false;
+  if (activeIds(g).length <= 1) endGame(g, 'last');
+}
+
+// ================= turn flow =================
+function assertTurn(g, pid) { if (g.status !== 'playing') fail('The game is not running.'); if (g.order[g.turnIdx] !== pid) fail('It’s not your turn.'); }
+function assertManage(g, pid) { assertTurn(g, pid); if (!['roll', 'end'].includes(g.phase) || g.q.length) fail('Finish the current decision first.'); }
 function advance(g) {
-  g.q = []; g.dice = null;
-  if (g.extra) { g.extra = false; g.phase = 'roll'; g.turnNo++; log(g, g.order[g.turnIdx], 'Dapat giliran bonus!'); return; }
-  for (let guard = 0; guard < 50; guard++) {
+  g.q = []; g.doubleRent = false;
+  if (g.status !== 'playing') return;
+  const cur = g.ps[g.order[g.turnIdx]];
+  if (g.extra && !cur.out) { g.extra = false; g.phase = 'roll'; g.turnNo++; log(g, g.order[g.turnIdx], 'Doubles! Roll again'); return; }
+  g.extra = false;
+  for (let guard = 0; guard < 20; guard++) {
     let idx = g.turnIdx + 1;
-    if (idx >= g.order.length) { idx = 0; g.round++; drift(g); if (g.round > g.cfg.rounds) { endGame(g); return; } }
-    g.turnIdx = idx; g.turnNo++; g.phase = 'roll';
-    const p = g.ps[g.order[idx]];
-    if (p.skip > 0) { p.skip--; log(g, g.order[idx], 'Melewati giliran ini.'); continue; }
+    if (idx >= g.order.length) { idx = 0; g.round++; if (g.round > g.cfg.rounds) { endGame(g, 'rounds'); return; } }
+    g.turnIdx = idx;
+    if (g.ps[g.order[idx]].out) continue;
+    g.turnNo++; g.phase = 'roll'; g.ps[g.order[idx]].doubles = 0; g.dice = null;
     return;
   }
 }
-function drift(g) { for (const k in DRIFT) { let d = DRIFT[k]; if (k === 'saham') d = -400 + rnd(1001); if (k === 'warung') d = -200 + rnd(301); g.market[k] = Math.max(3000, Math.min(30000, g.market[k] + d)); } }
-function endGame(g) { g.reveals = g.reveals || {}; g.status = 'ended'; g.phase = null; g.q = []; g.round = Math.min(g.round, g.cfg.rounds); log(g, null, 'Game selesai! Saatnya menghitung nasib.'); }
+function endGame(g, reason) { g.status = 'ended'; g.phase = null; g.q = []; g.endReason = reason; g.round = Math.min(g.round, g.cfg.rounds); log(g, null, reason === 'last' ? 'Only one player is left standing. Game over!' : 'Final round complete. Counting the fortunes!'); }
+function applyJob(g, pid, key) {
+  const p = g.ps[pid], j = JOBS[key];
+  p.job = key; p.sal = j.sal * JT;
+  if (j.start) p.cash += j.start * JT;
+  if (j.owe) p.owe += j.owe * JT;
+  log(g, pid, `Chose ${j.name} (${rpShort(p.sal)} salary)`);
+}
+function botJob(g, id) { const offers = g.offers[id]; return offers.map(k => [k, JOBS[k].sal - (JOBS[k].life || 0) + (JOBS[k].perProp ? 3 : 0) + (JOBS[k].tutor ? 4 : 0) + (JOBS[k].build ? 3 : 0) + rnd(5)]).sort((a, b) => b[1] - a[1])[0][0]; }
+function maybeBegin(g) {
+  if (g.order.some(id => !g.ps[id].job)) return;
+  Object.assign(g, { status: 'playing', phase: 'roll', turnIdx: 0, round: 1, turnNo: 1 });
+  log(g, null, `Jobs are set. Game on! ${g.cfg.rounds} rounds. ${nameOf(g, g.order[0])} goes first.`);
+}
 
-// ================= actions (validated mutators) =================
+// Games started on the earlier square board (no jobs) can't continue under these rules.
+const isLegacy = g => !!g.ps && (g.status === 'playing' || g.status === 'ended') && Object.values(g.ps).some(p => p.job === undefined);
 const A = {
-  create(g, me, nick, av, code, bots) { Object.assign(g, { code, hostId: me, status: 'lobby', cfg: { rounds: 12 }, players: [{ id: me, nick, av, ready: false }], chat: [], log: [], done: [], v: 0, gameId: mkId() }); for (let i = 0; i < Math.min(5, bots || 0); i++) A.addBot(g, me); },
+  resetLegacy(g, me) {
+    if (g.hostId !== me) fail('Only the host can do that.'); if (!isLegacy(g)) fail('This game is up to date.');
+    for (const k of ['order', 'ps', 'props', 'offers', 'fund', 'decks', 'turnIdx', 'round', 'turnNo', 'phase', 'q', 'dice', 'move', 'extra', 'doubleRent', 'startedAt', 'endReason', 'rollK', 'actN']) delete g[k];
+    g.status = 'lobby'; g.log = []; g.gameId = mkId(); g.players.forEach(p => p.ready = !!p.bot);
+  },
+  create(g, me, nick, av, code, bots) { Object.assign(g, { code, hostId: me, status: 'lobby', cfg: { rounds: 20 }, players: [{ id: me, nick, av, ready: false }], chat: [], log: [], v: 0, gameId: mkId() }); for (let i = 0; i < Math.min(5, bots || 0); i++) A.addBot(g, me); },
   addBot(g, me) {
-    if (g.hostId !== me) fail('Hanya host yang bisa menambah bot.'); if (g.status !== 'lobby') fail('Bot hanya bisa ditambah di lobby.');
-    if (g.players.length >= 6) fail('Room sudah penuh (6 pemain).');
-    const used = new Set(g.players.map(p => p.nick)); const free = BOTS.filter(b => !used.has(b[0]));
-    const [nick, av] = free[rnd(free.length)];
+    if (g.hostId !== me) fail('Only the host can add bots.'); if (g.status !== 'lobby') fail('Bots can only join in the lobby.');
+    if (g.players.length >= 6) fail('The room is full (6 players).');
+    const used = new Set(g.players.map(p => p.nick)), free = BOTS.filter(b => !used.has(b[0])), [nick, av] = free[rnd(free.length)];
     g.players.push({ id: 'bot-' + mkId(8), nick, av, ready: true, bot: true });
   },
-  botStep(g, me) {
-    if (g.status !== 'playing') fail('Game tidak berjalan.');
-    const caller = g.players.find(p => p.id === me); if (!caller || caller.bot) fail('Kamu bukan pemain di room ini.');
-    const cur = g.order[g.turnIdx], p = g.ps[cur]; if (!p.bot) fail('Bukan giliran bot.');
-    if (g.phase === 'roll') { if (p.debt > 0 && p.cash > p.liv * 2 + 2 * JT) A.repay(g, cur, 'all'); A.roll(g, cur); }
-    else if (g.phase === 'act') A.resolve(g, cur, botChoose(g, cur));
-    else if (g.phase === 'end') A.end(g, cur);
-  },
   join(g, me, nick, av) {
-    if (g.players.some(p => p.id === me)) { const p = g.players.find(p => p.id === me); p.nick = nick; p.av = av; return; }
-    if (g.status !== 'lobby') fail('Game di room ini sudah berjalan. Tunggu sampai selesai.');
-    if (g.players.length >= 6) fail('Room sudah penuh (6 pemain).');
+    const ex = g.players.find(p => p.id === me); if (ex) { ex.nick = nick; ex.av = av; return; }
+    if (g.status !== 'lobby') fail('This game has already started. Wait for the next one.');
+    if (g.players.length >= 6) fail('The room is full (6 players).');
     g.players.push({ id: me, nick, av, ready: false });
   },
   leave(g, me) {
-    if (g.status === 'playing') fail('Game sedang berjalan.');
+    if (g.status === 'playing' || g.status === 'jobs') fail('The game is running.');
     g.players = g.players.filter(p => p.id !== me);
     const humans = g.players.filter(p => !p.bot);
     if (g.hostId === me) g.hostId = humans[0]?.id || null;
     if (!humans.length) { g.players = []; g.status = 'closed'; }
   },
-  ready(g, me, val) { if (g.status !== 'lobby') fail('Game sudah dimulai.'); const p = g.players.find(p => p.id === me); if (!p) fail('Kamu belum masuk room.'); p.ready = !!val; },
-  kick(g, me, who) { if (g.hostId !== me) fail('Hanya host.'); if (g.status !== 'lobby') fail('Hanya di lobby.'); if (who === me) fail('Tidak bisa mengeluarkan diri sendiri.'); g.players = g.players.filter(p => p.id !== who); },
-  rounds(g, me, n) { if (g.hostId !== me) fail('Hanya host.'); if (g.status !== 'lobby') fail('Hanya di lobby.'); if (![8, 12, 16, 20].includes(n)) fail('Pilihan ronde tidak valid.'); g.cfg.rounds = n; },
-  chat(g, me, i) { if (!g.players.some(p => p.id === me)) fail('Kamu bukan anggota room.'); if (!(i >= 0 && i < CHAT_PRESETS.length)) fail('Pesan tidak valid.'); g.chat.push({ p: me, i, t: Date.now() }); if (g.chat.length > MAX_CHAT) g.chat.splice(0, g.chat.length - MAX_CHAT); },
+  ready(g, me, val) { if (g.status !== 'lobby') fail('The game has started.'); const p = g.players.find(p => p.id === me); if (!p) fail('You are not in this room.'); p.ready = !!val; },
+  kick(g, me, who) { if (g.hostId !== me) fail('Only the host can do that.'); if (g.status !== 'lobby') fail('Only in the lobby.'); if (who === me) fail('You can’t remove yourself.'); g.players = g.players.filter(p => p.id !== who); },
+  rounds(g, me, n) { if (g.hostId !== me) fail('Only the host can do that.'); if (g.status !== 'lobby') fail('Only in the lobby.'); if (![10, 15, 20, 30].includes(n)) fail('Invalid number of rounds.'); g.cfg.rounds = n; },
+  chat(g, me, i) { if (!g.players.some(p => p.id === me)) fail('You are not in this room.'); if (!(i >= 0 && i < CHAT_PRESETS.length)) fail('Invalid message.'); g.chat.push({ p: me, i, t: Date.now() }); if (g.chat.length > MAX_CHAT) g.chat.splice(0, g.chat.length - MAX_CHAT); },
   start(g, me) {
-    if (g.hostId !== me) fail('Hanya host yang bisa memulai.');
-    if (g.status !== 'lobby') fail('Game sudah dimulai.');
-    if (g.players.length < 2) fail('Butuh minimal 2 pemain.');
-    if (!g.players.every(p => p.ready)) fail('Semua pemain harus siap.');
+    if (g.hostId !== me) fail('Only the host can start.'); if (g.status !== 'lobby') fail('The game has already started.');
+    if (g.players.length < 2) fail('You need at least 2 players.'); if (!g.players.every(p => p.ready)) fail('Everyone must be ready.');
     g.order = shuffle(g.players.map(p => p.id)); g.ps = {};
-    for (const id of g.order) { const k = STARTER_CAREERS[rnd(STARTER_CAREERS.length)], c = CAREERS[k], pl = g.players.find(x => x.id === id); g.ps[id] = { nick: pl.nick, av: pl.av, bot: !!pl.bot, pos: 0, cash: START_CASH, sav: 0, debt: c.debt || 0, hap: 50, career: k, sal: c.sal, liv: c.liv, promos: 0, assets: [], skip: 0, bk: 0, laps: 0, ins: false }; }
-    g.market = {}; for (const k in ASSETS) g.market[k] = 10000;
-    Object.assign(g, { infl: 0, decks: {}, turnIdx: 0, round: 1, turnNo: 1, phase: 'roll', q: [], dice: null, move: null, extra: false, status: 'playing', gameId: mkId(), reveals: {}, log: [], startedAt: Date.now() });
-    log(g, null, `Game dimulai! ${g.cfg.rounds} ronde. Giliran pertama: ${nameOf(g, g.order[0])}`);
-    for (const id of g.order) log(g, id, `Karier awal: ${CAREERS[g.ps[id].career].name}`);
+    g.order.forEach((id, k) => { const pl = g.players.find(x => x.id === id); g.ps[id] = { nick: pl.nick, av: pl.av, bot: !!pl.bot, col: k, pos: 0, cash: START_CASH, job: null, sal: 0, jam: 0, cards: 0, doubles: 0, owe: 0, out: false, laps: 0, st: { rentIn: 0, rentOut: 0, jams: 0, builds: 0 } }; });
+    g.props = {}; for (const i of BUYABLE) g.props[i] = { o: null, h: 0, m: false };
+    // Job draft: 4 offers each when it fits, 3 for bigger tables; spread the pool so offers rarely repeat.
+    const per = g.order.length <= 4 ? 4 : 3, keys = Object.keys(JOBS); let pool = shuffle(keys); g.offers = {};
+    for (const id of g.order) { const pick = []; while (pick.length < per) { if (!pool.length) pool = shuffle(keys); const k = pool.pop(); if (!pick.includes(k)) pick.push(k); } g.offers[id] = pick; }
+    Object.assign(g, { fund: 0, decks: {}, turnIdx: 0, round: 1, turnNo: 0, phase: null, q: [], dice: null, move: null, extra: false, doubleRent: false, status: 'jobs', gameId: mkId(), log: [], startedAt: Date.now(), endReason: null });
+    log(g, null, 'Choose your job! Each player picks one of the offers.');
+    for (const id of g.order) if (g.ps[id].bot) applyJob(g, id, botJob(g, id));
+    maybeBegin(g);
+  },
+  pickJob(g, me, key) {
+    if (g.status !== 'jobs') fail('Jobs are already chosen.'); const p = g.ps?.[me]; if (!p) fail('You are not in this game.');
+    if (p.job) fail('You already chose a job.'); if (!g.offers[me].includes(key)) fail('That job wasn’t offered to you.');
+    applyJob(g, me, key); maybeBegin(g);
   },
   roll(g, me) {
-    assertTurn(g, me); if (g.phase !== 'roll') fail('Dadu sudah dikocok giliran ini.');
-    const d = [1 + rnd(6), 1 + rnd(6)]; g.dice = d; g.q = [];
-    log(g, me, `Kocok dadu: ${d[0]} + ${d[1]}`);
-    moveSteps(g, me, d[0] + d[1]);
-    g.phase = g.q.length ? 'act' : 'end';
-  },
-  resolve(g, me, idx) {
-    assertTurn(g, me); if (g.phase !== 'act' || !g.q.length) fail('Tidak ada keputusan yang menunggu.');
-    const it = g.q[0], opts = optionsFor(g, me, it), o = opts[idx];
-    if (!o) fail('Pilihan tidak valid.'); if (!o.ok) fail(o.sub || 'Pilihan ini belum bisa diambil.');
-    g.q.shift(); const keep = o.run(); if (keep === 'keep') g.q.unshift(it);
-    g.phase = g.q.length ? 'act' : 'end';
-  },
-  end(g, me) { assertTurn(g, me); if (g.phase !== 'end') fail('Selesaikan dulu keputusan yang menunggu.'); advance(g); },
-  repay(g, me, amt) {
-    assertTurn(g, me); if (!['roll', 'end'].includes(g.phase)) fail('Selesaikan dulu keputusan yang menunggu.');
-    const p = P(g, me); const n = Math.min(amt === 'all' ? p.debt : 1 * JT, p.cash, p.debt); if (n <= 0) fail('Tidak ada utang atau uang tunai.');
-    p.cash -= n; p.debt -= n; log(g, me, 'Bayar utang sukarela', -n);
-  },
-  sell(g, me, assetId) {
-    assertTurn(g, me); if (!['roll', 'end'].includes(g.phase)) fail('Selesaikan dulu keputusan yang menunggu.');
-    const p = P(g, me); const i = p.assets.findIndex(a => a.id === assetId); if (i < 0) fail('Aset tidak ditemukan.');
-    const a = p.assets[i], v = fl1k(assetValue(g, a.k) * 85 / 100); p.assets.splice(i, 1); gain(g, me, v, `Jual ${ASSETS[a.k].name} (85% nilai)`);
-  },
-  hostSkip(g, me) {
-    if (g.hostId !== me) fail('Hanya host.'); if (g.status !== 'playing') fail('Game tidak berjalan.');
-    const cur = g.order[g.turnIdx];
-    if (g.phase === 'roll') { log(g, cur, 'Giliran dilewati oleh host.'); advance(g); return; }
-    for (let i = 0; i < 30 && g.q.length; i++) {
-      const it = g.q[0], opts = optionsFor(g, cur, it);
-      let o = opts.find(x => x.def && x.ok) || [...opts].reverse().find(x => x.ok);
-      g.q.shift(); const keep = o.run(); if (keep === 'keep') g.q.unshift(it);
+    assertTurn(g, me); if (g.phase !== 'roll') fail('You already rolled this turn.');
+    g.actN = (g.actN || 0) + 1;
+    const p = g.ps[me], d = [1 + rnd(6), 1 + rnd(6)], dbl = d[0] === d[1]; g.dice = d; g.q = []; g.rollK = mkId(6);
+    log(g, me, `Rolled ${d[0]} + ${d[1]}${dbl ? ' (doubles)' : ''}`);
+    if (p.jam > 0) {
+      if (dbl) { p.jam = 0; log(g, me, 'Doubles! Escaped the Traffic Jam'); walk(g, me, d[0] + d[1]); }
+      else { p.jam--; if (p.jam === 0) { const fee = jamFee(g, me); log(g, me, fee ? 'Out of tries: paying the fee to get out' : 'The ojol shortcut gets you out'); if (fee) charge(g, me, fee, 'Traffic Jam fee', 'fund'); walk(g, me, d[0] + d[1]); } else { log(g, me, `Still stuck (${p.jam} ${p.jam === 1 ? 'try' : 'tries'} left)`); track(g, me); } }
+    } else {
+      if (dbl) { p.doubles++; if (p.doubles >= 3) { goJam(g, me, 'Three doubles in a row, caught speeding'); g.phase = 'end'; return; } g.extra = true; }
+      walk(g, me, d[0] + d[1]);
     }
-    log(g, cur, 'Keputusan diselesaikan otomatis oleh host.'); advance(g);
+    if (p.out) return;
+    g.phase = g.q.length ? 'act' : 'end';
   },
-  hostEnd(g, me) { if (g.hostId !== me) fail('Hanya host.'); if (g.status !== 'playing') fail('Game tidak berjalan.'); endGame(g); },
-  reveal(g, me, key) { if (g.status !== 'ended') fail('Game belum selesai.'); if (!g.ps?.[me]) fail('Kamu tidak ikut game ini.'); if (!GOALS[key]) fail('Tujuan tidak valid.'); g.reveals[me] = key; },
+  jamPay(g, me) { assertManage(g, me); const p = g.ps[me]; if (!p.jam) fail('You are not stuck.'); if (g.phase !== 'roll') fail('Pay before rolling.'); const fee = jamFee(g, me); if (p.cash < fee) fail('Not enough cash.'); if (fee) transfer(g, me, 'fund', fee, 'Traffic Jam fee'); p.jam = 0; },
+  jamCard(g, me) { assertManage(g, me); const p = g.ps[me]; if (!p.jam) fail('You are not stuck.'); if (g.phase !== 'roll') fail('Use it before rolling.'); if (!p.cards) fail('You have no Shortcut Card.'); p.cards--; p.jam = 0; log(g, me, 'Used a Shortcut Card to escape the Traffic Jam'); },
+  resolve(g, me, idx) {
+    assertTurn(g, me); if (g.phase !== 'act' || !g.q.length) fail('There is no decision waiting.');
+    const it = g.q[0], o = optionsFor(g, me, it)[idx];
+    g.actN = (g.actN || 0) + 1;
+    if (!o) fail('Invalid choice.'); if (!o.ok) fail(o.sub || 'That choice isn’t available.');
+    g.q.shift(); const keep = o.run(); if (keep === 'keep') g.q.unshift(it);
+    if (g.status !== 'playing') return;
+    if (g.ps[me].out) { g.phase = 'end'; return; }
+    g.phase = g.q.length ? 'act' : 'end';
+  },
+  end(g, me) { assertTurn(g, me); if (g.phase !== 'end') fail('Finish the decision first.'); advance(g); },
+  build(g, me, i) {
+    assertManage(g, me); if (!g.props[i]) fail('Invalid property.'); if (!canBuild(g, me, i)) fail('You can’t build there yet. Own two cities of the group (the whole group for a tower) and build evenly.');
+    const cost = buildCost(g, me, i); if (g.ps[me].cash < cost) fail('Not enough cash.');
+    g.ps[me].cash -= cost; g.props[i].h++; g.ps[me].st.builds++; log(g, me, `Built ${g.props[i].h === 5 ? 'an apartment tower' : `house #${g.props[i].h}`} on ${BOARD[i].n}`, -cost);
+  },
+  sellHouse(g, me, i) { assertManage(g, me); if (!g.props[i] || !canSellHouse(g, me, i)) fail('You can’t sell a building there. Sell evenly across the group.'); sellHouse(g, me, i); },
+  mortgage(g, me, i) { assertManage(g, me); if (!g.props[i] || !canMortgage(g, me, i)) fail('You can’t mortgage that. Sell the group’s buildings first.'); mortgage(g, me, i); },
+  unmortgage(g, me, i) { assertManage(g, me); const pr = g.props[i]; if (!pr || pr.o !== me || !pr.m) fail('That property isn’t mortgaged.'); const c = unmortCost(g, me, i); if (g.ps[me].cash < c) fail('Not enough cash.'); g.ps[me].cash -= c; pr.m = false; delete pr.mv; log(g, me, `Paid off the mortgage on ${BOARD[i].n}`, -c); },
+  hostSkip(g, me) {
+    if (g.hostId !== me) fail('Only the host can do that.');
+    if (g.status === 'jobs') { for (const id of g.order) if (!g.ps[id].job) { applyJob(g, id, g.offers[id][0]); log(g, id, 'Job assigned by the host'); } maybeBegin(g); return; }
+    if (g.status !== 'playing') fail('The game is not running.');
+    const cur = g.order[g.turnIdx];
+    if (g.phase === 'roll') { log(g, cur, 'Turn skipped by the host'); advance(g); return; }
+    for (let i = 0; i < 60 && g.q.length && g.status === 'playing'; i++) { const it = g.q[0], idx = botChoose(g, cur, true); g.q.shift(); const keep = optionsFor(g, cur, it)[idx].run(); if (keep === 'keep') g.q.unshift(it); }
+    if (g.status !== 'playing') return;
+    log(g, cur, 'Decisions resolved automatically by the host'); advance(g);
+  },
+  hostEnd(g, me) { if (g.hostId !== me) fail('Only the host can do that.'); if (g.status !== 'playing') fail('The game is not running.'); endGame(g, 'host'); },
   rematch(g, me) {
-    if (g.hostId !== me) fail('Hanya host.'); if (g.status !== 'ended') fail('Game belum selesai.');
-    for (const k of ['botGoals', 'order', 'ps', 'market', 'infl', 'decks', 'turnIdx', 'round', 'turnNo', 'phase', 'q', 'dice', 'move', 'extra', 'reveals', 'startedAt']) delete g[k];
+    if (g.hostId !== me) fail('Only the host can do that.'); if (g.status !== 'ended') fail('The game hasn’t ended.');
+    for (const k of ['order', 'ps', 'props', 'offers', 'fund', 'decks', 'turnIdx', 'round', 'turnNo', 'phase', 'q', 'dice', 'move', 'extra', 'doubleRent', 'startedAt', 'endReason']) delete g[k];
     g.status = 'lobby'; g.log = []; g.gameId = mkId(); g.players.forEach(p => p.ready = !!p.bot);
+  },
+  botStep(g, me) {
+    if (g.status !== 'playing') fail('The game is not running.');
+    const caller = g.players.find(p => p.id === me); if (!caller || caller.bot) fail('You are not a player in this room.');
+    const cur = g.order[g.turnIdx], p = g.ps[cur]; if (!p.bot) fail('It’s not a bot’s turn.');
+    if (g.phase === 'roll') {
+      botManage(g, cur);
+      if (p.jam) { if (p.cards) A.jamCard(g, cur); else if (p.cash > 60 * JT && g.round < g.cfg.rounds * 0.6 && p.cash >= jamFee(g, cur)) A.jamPay(g, cur); }
+      A.roll(g, cur);
+    } else if (g.phase === 'act') A.resolve(g, cur, botChoose(g, cur));
+    else if (g.phase === 'end') { botManage(g, cur); A.end(g, cur); }
   },
 };
 
 // ================= bot brain =================
-// Tries each allowed option on a copy of the game and keeps the one that best improves the bot's life score.
-function botValue(g, id) {
-  const p = g.ps[id], nw = netWorth(g, p), W = Math.floor(nw / (100 * RB));
-  let v = (W <= 400 ? W : 400 + (W - 400) / 3) + p.hap * 5 + p.promos * 60;
-  v += p.assets.reduce((s, a) => s + 12 + ASSETS[a.k].inc / (40 * RB), 0);
-  const liv = p.liv * (10000 + g.infl) / 10000; if (p.cash < liv) v -= 70; if (p.cash < liv / 2) v -= 60;
-  if (p.debt > creditLimit(p) * 0.6) v -= 90; if (p.career === 'pencari') v -= 60; v -= p.skip * 25 + p.bk * 200;
-  if (g.q.length && g.q[0].k === 'pay') v -= 40;
-  return v;
+const RESERVE = 15 * JT;
+function botManage(g, id) {
+  const p = g.ps[id];
+  for (let k = 0; k < 4; k++) { const m = owned(g, id).filter(i => g.props[i].m).sort((a, b) => unmortCost(g, id, a) - unmortCost(g, id, b))[0]; if (m === undefined || p.cash - unmortCost(g, id, m) < RESERVE * 2) break; const c = unmortCost(g, id, m); p.cash -= c; g.props[m].m = false; delete g.props[m].mv; log(g, id, `Paid off the mortgage on ${BOARD[m].n}`, -c); }
+  for (let k = 0; k < 15; k++) {
+    const cand = owned(g, id).filter(i => canBuild(g, id, i) && p.cash - buildCost(g, id, i) >= RESERVE).sort((a, b) => g.props[a].h - g.props[b].h || houseCost(a) - houseCost(b))[0];
+    if (cand === undefined) break;
+    const cost = buildCost(g, id, cand); p.cash -= cost; g.props[cand].h++; p.st.builds++; log(g, id, `Built ${g.props[cand].h === 5 ? 'an apartment tower' : `house #${g.props[cand].h}`} on ${BOARD[cand].n}`, -cost);
+  }
 }
-function botChoose(g, id) {
-  const opts = optionsFor(g, id, g.q[0]); let best = -1, bestV = -Infinity;
+function botChoose(g, id, safe) {
+  const it = g.q[0], p = g.ps[id], opts = optionsFor(g, id, it);
+  if (it.k === 'buy') {
+    const s = BOARD[it.i], price = buyPrice(g, id, it.i), completes = s.g && groupOf(s.g).every(j => j === it.i || g.props[j].o === id);
+    const want = !safe && opts[0].ok && (completes || p.cash - price >= RESERVE || (p.cash - price >= 5 * JT && g.round <= 6));
+    return want ? 0 : 1;
+  }
+  if (it.k === 'takeover') {
+    if (safe || !opts[0].ok) return 1;
+    const s = BOARD[it.i], grp = groupOf(s.g), mine = grp.filter(j => g.props[j].o === id).length;
+    const completes = mine === grp.length - 1;
+    return (completes && p.cash - it.price >= 5 * JT) || (mine >= 1 && p.cash - it.price >= RESERVE) ? 0 : 1;
+  }
+  if (it.k === 'debt') {
+    if (opts[0].ok) return 0;
+    const inSet = i => !!BOARD[i].g && ownsGroup(g, id, BOARD[i].g);
+    const morts = opts.map((o, k) => [o, k]).filter(([o]) => o.kind === 'mort').sort(([a], [b]) => (inSet(a.i) ? 1 : 0) - (inSet(b.i) ? 1 : 0) || BOARD[a.i].price - BOARD[b.i].price);
+    if (morts.length) return morts[0][1];
+    const sell = opts.findIndex(o => o.kind === 'sell'); if (sell >= 0) return sell;
+    return opts.findIndex(o => o.kind === 'bk');
+  }
+  // card choice: try each option on a copy and keep the best outcome
+  let best = -1, bestV = -Infinity;
   opts.forEach((o, i) => {
     if (!o.ok) return; let v;
-    try { const t = JSON.parse(JSON.stringify(g)); A.resolve(t, id, i); v = botValue(t, id); } catch (e) { return; }
-    v += rnd(12);
+    try { const t = JSON.parse(JSON.stringify(g)); A.resolve(t, id, i); v = netWorth(t, id) + Math.min(t.ps[id].cash, 40 * JT) * 0.3 - (t.ps[id].jam ? 6 * JT : 0) - (t.q.length && t.q[0].k === 'debt' ? 20 * JT : 0) - (t.ps[id].out ? 1e9 : 0); }
+    catch (e) { return; }
+    if (!safe) v += rnd(2 * JT);
     if (v > bestV) { bestV = v; best = i; }
   });
-  if (best < 0) { best = opts.findIndex(o => o.def && o.ok); if (best < 0) best = opts.findIndex(o => o.ok); }
+  if (best < 0) best = Math.max(0, opts.findIndex(o => o.def && o.ok));
   return best;
 }
 
 // ================= scoring =================
 const TITLES = {
-  sultan: ['Sultan Akhir Bulan', 'Kekayaan bersih tertinggi di meja.'],
-  cicilan: ['Raja Cicilan', 'Utang terbesar, tetap percaya diri.'],
-  korporat: ['Budak Korporat Paling Bahagia', 'Kerja kantoran, tetap tersenyum.'],
-  investor: ['Investor Dadakan', 'Aset paling banyak, entah dari mana.'],
-  healing: ['Healing Terus, Saldo Tipis', 'Bahagia maksimal, dompet minimal.'],
-  hemat: ['Si Paling Dana Darurat', 'Tabungan darurat paling tebal.'],
-  pinjol: ['Penyintas Pinjol', 'Pernah bangkrut, masih berdiri.'],
-  tuatua: ['Pejuang Tanggal Tua', 'Uang tunai paling tipis di akhir game.'],
-  biasa: ['Warga +62 Biasa Saja', 'Hidup jalan, cicilan jalan, kopi jalan.'],
+  sultan: ['Property Sultan', 'Biggest fortune on the board.'],
+  landlord: ['Rent Collector', 'Collected the most rent.'],
+  tenant: ['Everyone’s Favorite Tenant', 'Paid the most rent.'],
+  tower: ['Tower Tycoon', 'Built the most houses and towers.'],
+  jam: ['Traffic Jam Regular', 'Spent the most time stuck.'],
+  broke: ['Broke but Smiling', 'Went bankrupt, kept the vibes.'],
+  warga: ['Average Warga +62', 'Salary in, trouble out.'],
 };
 function computeResults(g) {
-  const rows = g.order.map(id => {
-    const p = g.ps[id], nw = netWorth(g, p), W = Math.floor(nw / (100 * RB));
-    const wealth = W <= 400 ? W : 400 + Math.floor((W - 400) / 3);
-    const hap = p.hap * 5;
-    const career = p.promos * 60 + (p.career === 'manajer' ? 40 : 0) + (p.career === 'pencari' ? -60 : 0);
-    const gk = g.reveals?.[id]; const goalMet = gk ? GOALS[gk].test(p, nw) : false;
-    const goal = goalMet ? 250 : 0, debtFree = p.debt === 0 ? 80 : 0, bk = -200 * p.bk;
-    return { id, p, nw, assetsV: nw - p.cash - p.sav + p.debt, parts: { wealth, hap, career, goal, debtFree, bk }, total: wealth + hap + career + goal + debtFree + bk, goalKey: gk || null, goalMet };
-  });
-  rows.sort((a, b) => b.total - a.total || b.nw - a.nw);
-  // titles: each rule picks the best-fitting player not yet titled
-  const taken = new Set(); const by = (arr, f) => arr.filter(r => !taken.has(r.id)).sort(f)[0];
-  const give = (key, r) => { if (r) { r.title = key; taken.add(r.id); } };
-  give('sultan', by(rows.filter(r => r.nw >= 20 * JT), (a, b) => b.nw - a.nw));
-  give('pinjol', by(rows.filter(r => r.p.bk > 0), (a, b) => b.p.bk - a.p.bk));
-  give('cicilan', by(rows.filter(r => r.p.debt >= 5 * JT), (a, b) => b.p.debt - a.p.debt));
-  give('korporat', by(rows.filter(r => OFFICE.includes(r.p.career) && r.p.hap >= 70), (a, b) => b.p.hap - a.p.hap));
-  give('investor', by(rows.filter(r => r.p.assets.length >= 2), (a, b) => b.p.assets.length - a.p.assets.length));
-  give('healing', by(rows.filter(r => r.p.hap >= 75 && r.nw < 15 * JT), (a, b) => b.p.hap - a.p.hap));
-  give('hemat', by(rows.filter(r => r.p.sav >= 4 * JT), (a, b) => b.p.sav - a.p.sav));
-  give('tuatua', by(rows.filter(r => r.p.cash < 3 * JT), (a, b) => a.p.cash - b.p.cash));
-  rows.forEach(r => { if (!r.title) r.title = 'biasa'; });
+  const rows = g.order.map(id => { const p = g.ps[id], props = owned(g, id); return { id, p, nw: p.out ? 0 : netWorth(g, id), cash: p.cash, propsN: props.length, propsV: props.reduce((s, i) => s + propValue(g, i), 0), buildings: props.reduce((s, i) => s + (g.props[i].h || 0), 0) }; });
+  rows.sort((a, b) => (a.p.out ? 1 : 0) - (b.p.out ? 1 : 0) || (a.p.out ? (b.p.outAt || 0) - (a.p.outAt || 0) : b.nw - a.nw));
+  const taken = new Set(), give = (key, r) => { if (r && !taken.has(r.id)) { r.title = key; taken.add(r.id); } };
+  const pick = (f, s) => rows.filter(r => !taken.has(r.id) && f(r)).sort(s)[0];
+  give('sultan', rows[0]?.p.out ? null : rows[0]);
+  give('broke', pick(r => r.p.out, () => 0));
+  give('landlord', pick(r => r.p.st.rentIn > 0, (a, b) => b.p.st.rentIn - a.p.st.rentIn));
+  give('tower', pick(r => r.p.st.builds >= 3, (a, b) => b.p.st.builds - a.p.st.builds));
+  give('tenant', pick(r => r.p.st.rentOut > 0, (a, b) => b.p.st.rentOut - a.p.st.rentOut));
+  give('jam', pick(r => r.p.st.jams >= 2, (a, b) => b.p.st.jams - a.p.st.jams));
+  rows.forEach(r => { if (!r.title) r.title = 'warga'; });
   return rows;
 }
 
-// Secret goals are dealt by the server and stored outside the public game state.
-function dealGoals(g) { const ks = Object.keys(GOALS), out = {}; for (const id of g.order) out[id] = ks[rnd(ks.length)]; return out; }
-
 export {
-  A, GameError, BOARD, SPACE_TYPES, CARDS, CATS, CAREERS, ASSETS, GOALS, TITLES, BOTS, CHAT_PRESETS, AVATARS, DECK_CATS,
-  START_CASH, computeResults, optionsFor, netWorth, assetValue, creditLimit, nameOf, avOf, rp, rpShort, rnd, mkCode, mkId, dealGoals, botChoose,
+  A, GameError, BOARD, GROUPS, SPACE_TYPES, CARDS, JOBS, BUYABLE, POS, TITLES, BOTS, CHAT_PRESETS, AVATARS, PCOLORS, JT, START_CASH,
+  optionsFor, computeResults, netWorth, rentFor, rentDue, rentTable, baseRent, houseCost, buildCost, buyPrice, takeoverPrice, jamFee,
+  canBuild, canSellHouse, canMortgage, unmortCost, mortValueFor, owned, groupOf, ownsGroup, cardMeta, isLegacy, nameOf, avOf,
+  rnd, mkId, mkCode, rp, rpShort, botChoose,
 };

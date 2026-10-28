@@ -1,7 +1,7 @@
 {
   "name": "Hidup di Indonesia",
   "short_name": "Hidup di ID",
-  "description": "Gaji Masuk, Masalah Datang. Board game online 2–6 pemain.",
+  "description": "Salary in, trouble out. A 3D property game across 22 Indonesian cities.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
