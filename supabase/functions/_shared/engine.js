@@ -2,8 +2,10 @@
 // ================= HIDUP DI INDONESIA · City Edition — rules engine =================
 // Pure functions over a plain-JSON game object. Money is integer rupiah. Randomness: crypto.getRandomValues.
 const JT = 1000000, RB = 1000;
+// Game money unit: every amount below is written in units of Rp10K (so “10 * U” = Rp100K; start cash 100 * U = Rp1M).
+const U = 100000;
 const MAX_LOG = 140, MAX_CHAT = 30;
-const START_CASH = 100 * JT, JAM_FEE = 5 * JT, MAX_JAM_TURNS = 3;
+const START_CASH = 100 * U, JAM_FEE = 5 * U, MAX_JAM_TURNS = 3;
 const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
 function rnd(n) { const a = new Uint32Array(1), lim = Math.floor(0x100000000 / n) * n; do { crypto.getRandomValues(a); } while (a[0] >= lim); return a[0] % n; }
@@ -18,48 +20,49 @@ const fail = m => { throw new GameError(m); };
 
 // ---------- board: a hexagon, 6 sides × 6 spaces, a special corner at every vertex ----------
 const GROUPS = {
-  brown:  { name: 'Java North Coast', color: '#8B5A3C' },
-  sky:    { name: 'Sumatra', color: '#43B0E0' },
-  pink:   { name: 'Kalimantan', color: '#E2559A' },
-  orange: { name: 'Sulawesi', color: '#F08A24' },
-  red:    { name: 'Eastern Islands', color: '#DB3A34' },
+  brown:  { name: 'Papua & Maluku', color: '#8B5A3C' },
+  sky:    { name: 'Nusa Tenggara', color: '#43B0E0' },
+  pink:   { name: 'Sulawesi', color: '#E2559A' },
+  orange: { name: 'Kalimantan', color: '#F08A24' },
+  red:    { name: 'Sumatra', color: '#DB3A34' },
   yellow: { name: 'Central Java', color: '#F2C230' },
   green:  { name: 'West & East Java', color: '#2E9E5B' },
   navy:   { name: 'Prime Cities', color: '#2B3A8C' },
 };
-const C = (n, g, price, note) => ({ n, t: 'city', g, price: price * JT, note });
+const C = (n, g, price, note) => ({ n, t: 'city', g, price: price * U, note });
+// The board sweeps the archipelago from east to west: Papua & Maluku, Nusa Tenggara, Sulawesi, Kalimantan, Sumatra, Java, then Bali and Jakarta.
 const BOARD = [
   { n: 'Payday', t: 'start', note: 'Collect your job’s salary every time you pass.' },
-  C('Cirebon', 'brown', 6, 'Empal gentong and megamendung batik.'),
+  C('Jayapura', 'brown', 6, 'Hills over Yos Sudarso Bay.'),
   { n: 'Life Event', t: 'event' },
-  C('Tegal', 'brown', 7, 'Hometown of the warteg.'),
-  { n: 'Merak Ferry Port', t: 'transport', price: 20 * JT, note: 'Java to Sumatra, if the queue allows.' },
-  C('Padang', 'sky', 10, 'The hometown of rendang.'),
+  C('Ambon', 'brown', 7, 'The City of Music.'),
+  { n: 'Pelni Ferry', t: 'transport', price: 20 * U, note: 'Island to island, if the waves allow.' },
+  C('Kupang', 'sky', 10, 'Sunsets over the Timor Sea.'),
   { n: 'Traffic Jam', t: 'jam', note: 'Just passing? You’re fine. Sent here? You’re stuck.' },
-  C('Pekanbaru', 'sky', 10, 'Riau river city.'),
-  C('Palembang', 'sky', 12, 'Pempek and the Ampera Bridge.'),
-  { n: 'Power Company', t: 'utility', price: 15 * JT, note: 'Rent = dice × Rp400K, or × Rp1M if you own both companies.' },
-  C('Pontianak', 'pink', 14, 'The city on the equator.'),
-  C('Balikpapan', 'pink', 14, 'Oil town by the bay.'),
+  C('Labuan Bajo', 'sky', 10, 'Gateway to the Komodo dragons.'),
+  C('Mataram', 'sky', 12, 'Lombok: Mount Rinjani and ayam taliwang.'),
+  { n: 'Power Company', t: 'utility', price: 15 * U, note: 'Rent = dice × Rp40K, or × Rp100K if you own both companies.' },
+  C('Palu', 'pink', 14, 'Bay city of Central Sulawesi.'),
+  C('Manado', 'pink', 14, 'Bunaken reefs and tinutuan.'),
   { n: 'Night Market', t: 'market', note: 'Street food and rumors. Draw an Indonesia Reality card.' },
-  C('Samarinda', 'pink', 16, 'Mahakam riverfront.'),
+  C('Makassar', 'pink', 16, 'Sunsets at Losari Beach.'),
   { n: 'Indonesia Reality', t: 'reality' },
-  C('Makassar', 'orange', 18, 'Sunsets at Losari Beach.'),
-  { n: 'Commuter Line', t: 'transport', price: 20 * JT, note: 'Packed at 7 a.m., packed at 6 p.m.' },
-  C('Manado', 'orange', 18, 'Bunaken reefs and tinutuan.'),
+  C('Pontianak', 'orange', 18, 'The city on the equator.'),
+  { n: 'Commuter Line', t: 'transport', price: 20 * U, note: 'Packed at 7 a.m., packed at 6 p.m.' },
+  C('Samarinda', 'orange', 18, 'Mahakam riverfront.'),
   { n: 'Rest Area', t: 'rest', note: 'Land here to collect the Community Fund.' },
-  C('Palu', 'orange', 20, 'Bay city of Central Sulawesi.'),
-  C('Labuan Bajo', 'red', 22, 'Gateway to the Komodo dragons.'),
+  C('Balikpapan', 'orange', 20, 'Oil town by the bay, next door to the new capital.'),
+  C('Padang', 'red', 22, 'The hometown of rendang.'),
   { n: 'Life Event', t: 'event' },
-  C('Ambon', 'red', 22, 'The City of Music.'),
-  C('Jayapura', 'red', 24, 'Hills over Yos Sudarso Bay.'),
+  C('Palembang', 'red', 22, 'Pempek and the Ampera Bridge.'),
+  C('Medan', 'red', 24, 'Durian, bika ambon and Lake Toba nearby.'),
   { n: 'Wrong Turn!', t: 'gojam', note: 'Toll exit closed. Go straight to the Traffic Jam.' },
   C('Semarang', 'yellow', 26, 'Lumpia and Lawang Sewu.'),
   C('Solo', 'yellow', 26, 'Batik and night markets.'),
-  { n: 'Airport', t: 'transport', price: 20 * JT, note: 'Promo tickets, real delays.' },
+  { n: 'Airport', t: 'transport', price: 20 * U, note: 'Promo tickets, real delays.' },
   C('Yogyakarta', 'yellow', 28, 'Gudeg, students and Malioboro.'),
-  { n: 'Water Company', t: 'utility', price: 15 * JT, note: 'Rent = dice × Rp400K, or × Rp1M if you own both companies.' },
-  { n: 'Arisan Night', t: 'arisan', note: 'Your name is drawn! Collect Rp1M from every player.' },
+  { n: 'Water Company', t: 'utility', price: 15 * U, note: 'Rent = dice × Rp40K, or × Rp100K if you own both companies.' },
+  { n: 'Arisan Night', t: 'arisan', note: 'Your name is drawn! Collect Rp100K from every player.' },
   C('Bandung', 'green', 30, 'Cool air and factory outlets.'),
   C('Surabaya', 'green', 30, 'The City of Heroes.'),
   C('Malang', 'green', 32, 'Apples and mountain views.'),
@@ -72,8 +75,8 @@ const JAM_POS = POS['Traffic Jam'];
 const BUYABLE = BOARD.map((s, i) => ['city', 'transport', 'utility'].includes(s.t) ? i : -1).filter(i => i >= 0);
 const RENT_MULT = [1, 5, 14, 30, 38, 45]; // 0 houses … 4 houses, 5 = tower
 const sideOf = i => Math.floor(i / PER_SIDE);
-const houseCost = i => [5, 7, 9, 12, 15, 20][sideOf(i)] * JT;
-const baseRent = i => Math.round(BOARD[i].price * 10 / 100 / (100 * RB)) * 100 * RB;
+const houseCost = i => [5, 7, 9, 12, 15, 20][sideOf(i)] * U;
+const baseRent = i => Math.round(BOARD[i].price * 10 / 100 / (10 * RB)) * 10 * RB;
 const rentTable = i => RENT_MULT.map(m => baseRent(i) * m);
 const groupOf = g => BOARD.map((s, i) => s.g === g ? i : -1).filter(i => i >= 0);
 const TOURIST = ['Bali', 'Labuan Bajo'];
@@ -91,22 +94,22 @@ const SPACE_TYPES = {
 // mortgage (% of price), take (% takeover price), protect, safe (no layoffs), quickJam, immune [tags], union (+M on bonus cards), tags.
 const JOBS = {
   pns:        { name: 'Civil Servant', ic: '🗂️', sal: 14, safe: true, cardNeg: -50, tags: ['gov'], pros: ['Can’t be laid off', 'Card fines cost you half'], cons: ['Modest salary'] },
-  startup:    { name: 'Startup Engineer', ic: '🚀', sal: 18, life: 4, tags: ['tech'], pros: ['High salary'], cons: ['Tech-layoff cards hit you', 'Living costs Rp4M each Payday'] },
+  startup:    { name: 'Startup Engineer', ic: '🚀', sal: 18, life: 4, tags: ['tech'], pros: ['High salary'], cons: ['Tech-layoff cards hit you', 'Living costs Rp400K each Payday'] },
   ojol:       { name: 'Ojol Driver', ic: '🛵', sal: 13, quickJam: true, tags: ['gig'], pros: ['Traffic Jam holds you 1 turn, no fee', 'Surge-pricing cards pay you'], cons: ['Low salary'] },
-  creator:    { name: 'Content Creator', ic: '🎥', sal: 11, var: [0, 250], cardPos: 50, tags: ['creative'], pros: ['Card income +50%', 'Salary can reach Rp27M'], cons: ['Salary can be Rp0', 'Algorithm cards hurt'] },
-  seller:     { name: 'Online Seller', ic: '📦', sal: 10, perProp: 1, tags: ['seller'], pros: ['+Rp1M per property you own each Payday', 'Shopping-day cards pay you'], cons: ['Low base salary'] },
+  creator:    { name: 'Content Creator', ic: '🎥', sal: 11, var: [0, 250], cardPos: 50, tags: ['creative'], pros: ['Card income +50%', 'Salary can reach Rp2.7M'], cons: ['Salary can be Rp0', 'Algorithm cards hurt'] },
+  seller:     { name: 'Online Seller', ic: '📦', sal: 10, perProp: 1, tags: ['seller'], pros: ['+Rp100K per property you own each Payday', 'Shopping-day cards pay you'], cons: ['Low base salary'] },
   agent:      { name: 'Property Agent', ic: '🏘️', sal: 12, buy: 10, rentPay: 20, tags: ['biz'], pros: ['Buy from the bank 10% cheaper'], cons: ['Pay 20% more rent (always out viewing)'] },
   contractor: { name: 'Contractor', ic: '👷', sal: 11, build: 25, repairs: 100, tags: ['biz'], pros: ['Houses and towers 25% cheaper'], cons: ['Repair and flood fines doubled'] },
-  manager:    { name: 'Corporate Manager', ic: '👔', sal: 23, owe: 25, tags: ['office'], pros: ['Top salary'], cons: ['Car loan: repay Rp25M at your first Payday', 'Mass-layoff cards hit you'] },
-  grad:       { name: 'Fresh Graduate', ic: '🎓', sal: 8, grow: 2, start: 15, tags: ['office'], pros: ['Salary grows Rp2M every Payday', 'Parents chip in Rp15M at the start'], cons: ['Starts at only Rp8M'] },
-  warung:     { name: 'Warung Owner', ic: '🍛', sal: 11, cardSpace: 5, tags: ['biz'], pros: ['+Rp5M whenever you land on a card space or the Night Market'], cons: ['Average salary'] },
-  doctor:     { name: 'Doctor', ic: '🩺', sal: 19, life: 4, immune: ['health'], tags: ['health'], pros: ['High salary', 'Immune to illness cards'], cons: ['Living costs Rp4M each Payday'] },
-  teacher:    { name: 'Teacher', ic: '📚', sal: 9, tutor: 1, tags: ['gov'], pros: ['Private tutoring: collect Rp1M from every player each Payday'], cons: ['Low salary'] },
+  manager:    { name: 'Corporate Manager', ic: '👔', sal: 23, owe: 25, tags: ['office'], pros: ['Top salary'], cons: ['Car loan: repay Rp2.5M at your first Payday', 'Mass-layoff cards hit you'] },
+  grad:       { name: 'Fresh Graduate', ic: '🎓', sal: 8, grow: 2, start: 15, tags: ['office'], pros: ['Salary grows Rp200K every Payday', 'Parents chip in Rp1.5M at the start'], cons: ['Starts at only Rp800K'] },
+  warung:     { name: 'Warung Owner', ic: '🍛', sal: 11, cardSpace: 5, tags: ['biz'], pros: ['+Rp500K whenever you land on a card space or the Night Market'], cons: ['Average salary'] },
+  doctor:     { name: 'Doctor', ic: '🩺', sal: 19, life: 4, immune: ['health'], tags: ['health'], pros: ['High salary', 'Immune to illness cards'], cons: ['Living costs Rp400K each Payday'] },
+  teacher:    { name: 'Teacher', ic: '📚', sal: 9, tutor: 1, tags: ['gov'], pros: ['Private tutoring: collect Rp100K from every player each Payday'], cons: ['Low salary'] },
   guide:      { name: 'Tour Guide', ic: '🧭', sal: 12, tourism: 75, tags: ['tourism'], pros: ['+75% rent on Bali, Labuan Bajo and transport', 'Tourism-boom cards pay you'], cons: ['Tourism-slump cards hurt'] },
-  banker:     { name: 'Banker', ic: '🏦', sal: 16, life: 2, mortgage: 60, tags: ['office'], pros: ['Mortgages pay 60% and redeem without the 10% fee'], cons: ['Living costs Rp2M each Payday', 'Mass-layoff cards hit you'] },
-  lawyer:     { name: 'Lawyer', ic: '⚖️', sal: 17, life: 3, take: 125, protect: true, tags: ['office'], pros: ['Take over cities at 125% instead of 150%', 'Nobody can take over your cities'], cons: ['Living costs Rp3M each Payday'] },
-  factory:    { name: 'Factory Worker', ic: '🏭', sal: 13, safe: true, union: 3, tags: ['union'], pros: ['Union: can’t be laid off', 'Bonus cards pay you Rp3M extra'], cons: ['Average salary'] },
-  farmer:     { name: 'Coffee Farmer', ic: '☕', sal: 9, var: [60, 230], tags: ['farm'], pros: ['Harvest pays 60–230% of Rp9M', 'Commodity-boom cards pay you'], cons: ['Drought cards hurt'] },
+  banker:     { name: 'Banker', ic: '🏦', sal: 16, life: 2, mortgage: 60, tags: ['office'], pros: ['Mortgages pay 60% and redeem without the 10% fee'], cons: ['Living costs Rp200K each Payday', 'Mass-layoff cards hit you'] },
+  lawyer:     { name: 'Lawyer', ic: '⚖️', sal: 17, life: 3, take: 125, protect: true, tags: ['office'], pros: ['Take over cities at 125% instead of 150%', 'Nobody can take over your cities'], cons: ['Living costs Rp300K each Payday'] },
+  factory:    { name: 'Factory Worker', ic: '🏭', sal: 13, safe: true, union: 3, tags: ['union'], pros: ['Union: can’t be laid off', 'Bonus cards pay you Rp300K extra'], cons: ['Average salary'] },
+  farmer:     { name: 'Coffee Farmer', ic: '☕', sal: 9, var: [60, 230], tags: ['farm'], pros: ['Harvest pays 60–230% of Rp900K', 'Commodity-boom cards pay you'], cons: ['Drought cards hurt'] },
 };
 const J = (g, pid) => JOBS[g.ps[pid].job] || {};
 
@@ -116,73 +119,87 @@ const CARDS = {};
 function K(id, deck, title, desc, fx, ch) { CARDS[id] = { id, deck, title, desc, fx: fx || [], ch: ch || null }; }
 const O = (l, fx, m) => ({ l, fx, m });
 // Life Event — mostly personal
-K('E01', 'event', 'Year-End Bonus', 'Your boss finally remembered you still work here.', [['cash', 10 * JT, 'bonus']]);
-K('E02', 'event', 'Holiday Bonus Lands', 'The THR hits your account. Your balance smiles for three days.', [['cash', 15 * JT, 'bonus']]);
-K('E03', 'event', 'Side Project', 'A college friend needs a logo. Decent pay, infinite revisions.', [['cash', 6 * JT]]);
-K('E04', 'event', 'Fun Run Door Prize', 'You came for the free T-shirt and went home with a fridge.', [['cash', 5 * JT]]);
-K('E05', 'event', 'Phone Takes a Dive', 'The screen now looks like a map of shortcut alleys.', [['pay', 3 * JT]]);
-K('E06', 'event', 'Motorbike Breaks Down', 'It stalls exactly when you’re in a hurry.', null, [O('Official workshop', [['pay', 2500 * RB]]), O('Roadside mechanic', [['pay', 1 * JT], ['back', 3]], 'It ran… for three blocks.')]);
-K('E07', 'event', 'Midnight Flash Sale', '50% off! Things you don’t need suddenly feel essential.', null, [O('Check out and resell', [['gamble', 3 * JT, 7 * JT, 50]]), O('Close the app', [])]);
-K('E08', 'event', 'Dog-Logo Crypto Coin', 'Up 300% this week. Your friends won’t stop posting screenshots.', null, [O('FOMO in Rp5M', [['gamble', 5 * JT, 14 * JT, 35]]), O('Pretend you didn’t see it', [])]);
-K('E09', 'event', 'Instant Loan SMS', '“Funds in 5 minutes!” The interest rate is not mentioned.', null, [O('Take Rp10M now', [['loan', 10 * JT, 13 * JT]], 'You must repay Rp13M at your next Payday.'), O('Block the number', [])]);
+K('E01', 'event', 'Year-End Bonus', 'Your boss finally remembered you still work here.', [['cash', 10 * U, 'bonus']]);
+K('E02', 'event', 'Holiday Bonus Lands', 'The THR hits your account. Your balance smiles for three days.', [['cash', 10 * U, 'bonus']]);
+K('E03', 'event', 'Side Project', 'A college friend needs a logo. Decent pay, infinite revisions.', [['cash', 6 * U]]);
+K('E04', 'event', 'Fun Run Door Prize', 'You came for the free T-shirt and went home with a fridge.', [['cash', 5 * U]]);
+K('E05', 'event', 'Phone Takes a Dive', 'The screen now looks like a map of shortcut alleys.', [['pay', 5 * U]]);
+K('E06', 'event', 'Motorbike Breaks Down', 'It stalls exactly when you’re in a hurry.', null, [O('Official workshop', [['pay', 4 * U]]), O('Roadside mechanic', [['pay', 150 * RB], ['back', 3]], 'It ran… for three blocks.')]);
+K('E07', 'event', 'Midnight Flash Sale', '50% off! Things you don’t need suddenly feel essential.', null, [O('Check out and resell', [['gamble', 3 * U, 7 * U, 50]]), O('Close the app', [])]);
+K('E08', 'event', 'Dog-Logo Crypto Coin', 'Up 300% this week. Your friends won’t stop posting screenshots.', null, [O('FOMO in Rp500K', [['gamble', 5 * U, 14 * U, 35]]), O('Pretend you didn’t see it', [])]);
+K('E09', 'event', 'Instant Loan SMS', '“Funds in 5 minutes!” The interest rate is not mentioned.', null, [O('Take Rp1M now', [['loan', 10 * U, 13 * U]], 'You must repay Rp1.3M at your next Payday.'), O('Block the number', [])]);
 K('E10', 'event', 'Going Home for Lebaran', 'Pricey tickets, endless traffic, but home is home. Advance to Payday.', [['goto', POS['Payday']]]);
-K('E11', 'event', 'Concert in the Capital', 'Ticket war at noon. Your fingers are fast today.', null, [O('Buy a ticket (Rp2M) and go', [['pay', 2 * JT], ['goto', POS['Jakarta']]]), O('Watch the livestream', [])]);
-K('E12', 'event', 'Promo Flight', 'A cheap ticket pops up in a friend’s story.', null, [O('Fly (Rp2M) to the Airport', [['pay', 2 * JT], ['goto', POS['Airport']]]), O('Stay home', [])]);
-K('E13', 'event', 'Promotion!', 'The long meetings paid off. Your name came up.', [['cash', 12 * JT, 'bonus']]);
-K('E14', 'event', 'Restructuring', 'A more polite word for layoffs. You keep your job, not your bonus.', [['pay', 8 * JT, 'layoff']]);
-K('E15', 'event', 'Wedding Season', 'Three invitations, one weekend. Pay Rp1M to every other player.', [['each', 1 * JT]]);
-K('E16', 'event', 'Your Birthday', 'Social media reminded everyone. Collect Rp1M from every player.', [['collect', 1 * JT]]);
-K('E17', 'event', 'Arisan Jackpot', 'Your name came out first at the office arisan. Collect Rp1.5M from every player.', [['collect', 1500 * RB]]);
-K('E18', 'event', 'Typo Transfer', 'One wrong digit and your money moved to a stranger.', [['pay', 2 * JT]]);
-K('E19', 'event', 'Online Shopping Scam', 'You ordered sneakers. A neatly wrapped brick arrived.', [['pay', 2500 * RB]]);
-K('E20', 'event', 'Freelance Translation', '40 pages due tomorrow morning.', [['cash', 4 * JT]]);
-K('E21', 'event', 'Viral for a Day', 'A million views of you falling off a bicycle.', [['cash', 3 * JT]]);
-K('E22', 'event', 'Dengue Fever', 'Three days in hospital. Mosquitoes don’t discriminate.', [['pay', 6 * JT, 'health']]);
+K('E11', 'event', 'Concert in the Capital', 'Ticket war at noon. Your fingers are fast today.', null, [O('Buy a ticket (Rp200K) and go', [['pay', 2 * U], ['goto', POS['Jakarta']]]), O('Watch the livestream', [])]);
+K('E12', 'event', 'Promo Flight', 'A cheap ticket pops up in a friend’s story.', null, [O('Fly (Rp200K) to the Airport', [['pay', 2 * U], ['goto', POS['Airport']]]), O('Stay home', [])]);
+K('E13', 'event', 'Promotion!', 'The long meetings paid off. Your name came up.', [['cash', 8 * U, 'bonus']]);
+K('E14', 'event', 'Restructuring', 'A more polite word for layoffs. You keep your job, not your bonus.', [['pay', 15 * U, 'layoff']]);
+K('E15', 'event', 'Wedding Season', 'Three invitations, one weekend. Pay Rp100K to every other player.', [['each', 1 * U]]);
+K('E16', 'event', 'Your Birthday', 'Social media reminded everyone. Collect Rp100K from every player.', [['collect', 1 * U]]);
+K('E17', 'event', 'Arisan Jackpot', 'Your name came out first at the office arisan. Collect Rp150K from every player.', [['collect', 150 * RB]]);
+K('E18', 'event', 'Typo Transfer', 'One wrong digit and your money moved to a stranger.', [['pay', 4 * U]]);
+K('E19', 'event', 'Online Shopping Scam', 'You ordered sneakers. A neatly wrapped brick arrived.', [['pay', 5 * U]]);
+K('E20', 'event', 'Freelance Translation', '40 pages due tomorrow morning.', [['cash', 4 * U]]);
+K('E21', 'event', 'Viral for a Day', 'A million views of you falling off a bicycle.', [['cash', 3 * U]]);
+K('E22', 'event', 'Dengue Fever', 'Three days in hospital. Mosquitoes don’t discriminate.', [['pay', 10 * U, 'health']]);
 K('E23', 'event', 'Shortcut Card', 'A friend shares a secret back road. Keep this card to escape the Traffic Jam once.', [['jamcard']]);
-K('E24', 'event', 'Daytime Headlight Ticket', 'You forgot. The officer didn’t.', [['pay', 1 * JT]]);
-K('E25', 'event', 'Cousin’s Mega Wedding', 'Everyone is invited and everyone brings an envelope. Collect Rp2M from every player.', [['collect', 2 * JT]]);
-K('E26', 'event', 'Viral Fundraiser', 'The internet chips in for whoever is struggling most. The poorest player receives Rp8M.', [['poorgift', 8 * JT]]);
-K('E27', 'event', 'Gotong Royong', 'Neighbors help neighbors. The richest player gives Rp6M to the poorest.', [['richtax', 6 * JT]]);
-K('E28', 'event', 'Office Potluck', 'Everyone brings food, everyone gets a little bonus. Every player receives Rp1M.', [['allcash', 1 * JT]]);
-K('E29', 'event', 'Food Poisoning', 'The night-market sate was suspicious. Pay Rp2M for medicine.', [['pay', 2 * JT, 'health']]);
-K('E30', 'event', 'Lucky Lottery Ticket', 'A scratch card from the minimarket actually won.', [['cash', 7 * JT]]);
+K('E24', 'event', 'Daytime Headlight Ticket', 'You forgot. The officer didn’t.', [['pay', 2 * U]]);
+K('E25', 'event', 'Cousin’s Mega Wedding', 'Everyone is invited and everyone brings an envelope. Collect Rp200K from every player.', [['collect', 2 * U]]);
+K('E26', 'event', 'Viral Fundraiser', 'The internet chips in for whoever is struggling most. The poorest player receives Rp800K.', [['poorgift', 8 * U]]);
+K('E27', 'event', 'Gotong Royong', 'Neighbors help neighbors. The richest player gives Rp600K to the poorest.', [['richtax', 6 * U]]);
+K('E28', 'event', 'Office Potluck', 'Everyone brings food, everyone gets a little bonus. Every player receives Rp100K.', [['allcash', 1 * U]]);
+K('E29', 'event', 'Food Poisoning', 'The night-market sate was suspicious. Pay Rp400K for medicine.', [['pay', 4 * U, 'health']]);
+K('E30', 'event', 'Lucky Lottery Ticket', 'A scratch card from the minimarket actually won.', [['cash', 4 * U]]);
+K('E31', 'event', 'Hospital Bill', 'A “quick check-up” turns into three nights and a long receipt.', [['pay', 12 * U, 'health']]);
+K('E32', 'event', 'Laptop Stolen', 'You looked away from your café table for one sip.', [['pay', 8 * U]]);
+K('E33', 'event', 'Family Emergency', 'Your relatives back home need help. Family comes first.', [['pay', 5 * U]]);
+K('E34', 'event', '“Your Package Is Held”', 'A caller says customs is holding your parcel. Just one small transfer…', null, [O('Transfer the “fee”', [['pay', 4 * U]], 'There was no package.'), O('Hang up and block', [['back', 2]], 'You missed your bus while arguing.')]);
+K('E35', 'event', 'Kos Rent Goes Up', 'The landlord found new paint and a new price.', [['pay', 4 * U]]);
+K('E36', 'event', 'Pinjol Debt Collector', 'An old online loan you forgot about comes back with interest.', [['pay', 10 * U]]);
 // Indonesia Reality — the country happens to everyone
-K('R01', 'reality', 'Wedding Invitation', 'An old classmate is getting married. You’re not close, but the envelope is mandatory.', null, [O('Thick envelope', [['pay', 2 * JT]]), O('Standard envelope', [['pay', 1 * JT]]), O('“I’m out of town”', [['jam']], 'Hiding at home turned into a three-day jam.')]);
-K('R02', 'reality', 'Independence Day Dues', 'The neighborhood committee arrives with a notebook and a hopeful smile.', [['pay', 500 * RB]]);
-K('R03', 'reality', 'Vehicle Tax Due', 'Your registration reminds you the state has needs too.', [['pay', 2 * JT]]);
-K('R04', 'reality', 'Fuel Price Hike', 'Petrol goes up. Everything else follows. Every player pays Rp2M to the Community Fund.', [['allpay', 2 * JT]]);
+K('R01', 'reality', 'Wedding Invitation', 'An old classmate is getting married. You’re not close, but the envelope is mandatory.', null, [O('Thick envelope', [['pay', 4 * U]]), O('Standard envelope', [['pay', 2 * U]]), O('“I’m out of town”', [['jam']], 'Hiding at home turned into a three-day jam.')]);
+K('R02', 'reality', 'Independence Day Dues', 'The neighborhood committee arrives with a notebook and a hopeful smile.', [['pay', 50 * RB]]);
+K('R03', 'reality', 'Vehicle Tax Due', 'Your registration reminds you the state has needs too.', [['pay', 4 * U]]);
+K('R04', 'reality', 'Fuel Price Hike', 'Petrol goes up. Everything else follows. Every player pays Rp500K to the Community Fund.', [['allpay', 5 * U]]);
 K('R05', 'reality', 'New Toll Road Opens', 'Everything is connected now. Advance to the nearest transport space; pay double rent if it’s owned.', [['nearest']]);
-K('R06', 'reality', 'Monsoon Floods', 'Streets became rivers. Every player pays Rp500K per house and Rp2M per tower they own.', [['allrepairs', 500 * RB, 2 * JT]]);
-K('R07', 'reality', 'Building Inspection', 'An inspector finds your buildings need “adjustments”. Pay Rp1M per house and Rp4M per tower.', [['repairs', 1 * JT, 4 * JT]]);
+K('R06', 'reality', 'Monsoon Floods', 'Streets became rivers. Every player pays Rp200K per house and Rp800K per tower they own.', [['allrepairs', 2 * U, 8 * U]]);
+K('R07', 'reality', 'Building Inspection', 'An inspector finds your buildings need “adjustments”. Pay Rp300K per house and Rp1M per tower.', [['repairs', 3 * U, 10 * U]]);
 K('R08', 'reality', 'Police Checkpoint', 'Papers, please. Go to the Traffic Jam.', [['jam']]);
 K('R09', 'reality', 'Rush Hour Commute', 'Packed carriage, mystery aromas, feet not touching the floor.', [['goto', POS['Commuter Line']]]);
-K('R10', 'reality', 'Rupiah Slides', 'Imported things get pricier overnight. Every player pays Rp1M to the Community Fund.', [['allpay', 1 * JT]]);
-K('R11', 'reality', 'Land Values Rise', 'A new mall is planned nearby. Collect Rp1M for each property you own.', [['perprop', 1 * JT]]);
-K('R12', 'reality', 'Tax Refund', 'You overpaid last year. The money comes home.', [['cash', 3 * JT]]);
+K('R10', 'reality', 'Rupiah Slides', 'Imported things get pricier overnight. Every player pays Rp300K to the Community Fund.', [['allpay', 3 * U]]);
+K('R11', 'reality', 'Land Values Rise', 'A new mall is planned nearby. Collect Rp100K for each property you own.', [['perprop', 1 * U]]);
+K('R12', 'reality', 'Tax Refund', 'You overpaid last year. The money comes home.', [['cash', 2 * U]]);
 K('R13', 'reality', 'Car Free Day', 'A slow walk and a bag of cilok. Move back 3 spaces.', [['back', 3]]);
 K('R14', 'reality', 'Blackout', 'The power cut out right before your deadline. Advance to the Power Company.', [['goto', POS['Power Company']]]);
-K('R15', 'reality', 'Small Business Grant', 'Your side business gets a government grant.', [['cash', 5 * JT]]);
+K('R15', 'reality', 'Small Business Grant', 'Your side business gets a government grant.', [['cash', 3 * U]]);
 K('R16', 'reality', 'Long Weekend', 'Three holidays in a row. Advance to the Rest Area.', [['goto', POS['Rest Area']]]);
-K('R17', 'reality', 'Mystery Parking Attendant', 'Invisible when you arrive, right there when you leave.', [['pay', 200 * RB]]);
-K('R18', 'reality', 'Government Cash Aid', 'Direct cash assistance is disbursed. Every player receives Rp3M.', [['allcash', 3 * JT]]);
-K('R19', 'reality', 'Collective Leave Day', 'A surprise cuti bersama. Every player gets Rp2M in holiday pay.', [['allcash', 2 * JT, 'bonus']]);
-K('R20', 'reality', 'Bali Tourism Boom', 'Flights are full. Owners of Bali and Jakarta collect Rp3M per city; Tour Guides get Rp4M.', [['regionbonus', 'navy', 3 * JT], ['jobcash', ['tourism'], 4 * JT]]);
-K('R21', 'reality', 'Nickel Boom', 'Smelters everywhere. Owners of Sulawesi cities collect Rp3M per city.', [['regionbonus', 'orange', 3 * JT]]);
-K('R22', 'reality', 'New Capital Hype', 'Everyone wants land near the new capital. Owners of Kalimantan cities collect Rp3M per city.', [['regionbonus', 'pink', 3 * JT]]);
-K('R23', 'reality', 'Coffee Export Boom', 'Indonesian beans are trending abroad. Coffee Farmers get Rp7M; Warung Owners get Rp2M.', [['jobcash', ['farm'], 7 * JT], ['jobcash', ['biz'], 2 * JT]]);
-K('R24', 'reality', 'Ojol Surge Pricing', 'It’s raining at 5 p.m. Ojol Drivers earn Rp5M; everyone else pays Rp500K for rides.', [['jobcash', ['gig'], 5 * JT], ['jobpay', ['gig'], 500 * RB]]);
-K('R25', 'reality', 'Civil Servant Pay Raise', 'Government salaries go up. Civil Servants and Teachers get Rp4M.', [['jobcash', ['gov'], 4 * JT]]);
-K('R26', 'reality', 'Tech Winter', 'Startups cut staff to “extend runway”. Startup Engineers lose Rp7M.', [['jobcash', ['tech'], -7 * JT, 'layoff']]);
-K('R27', 'reality', 'Algorithm Change', 'Reach drops 80% overnight. Content Creators lose Rp4M.', [['jobcash', ['creative'], -4 * JT]]);
-K('R28', 'reality', 'El Niño Drought', 'The rains don’t come. Coffee Farmers lose Rp5M.', [['jobcash', ['farm'], -5 * JT]]);
-K('R29', 'reality', 'Jakarta Floods', 'The capital is underwater again. Owners of Bali and Jakarta pay Rp2M per city.', [['regionpay', 'navy', 2 * JT]]);
-K('R30', 'reality', 'Port Strike', 'Ships wait offshore. Every transport owner pays Rp2M per transport space.', [['typepay', 'transport', 2 * JT]]);
-K('R31', 'reality', 'Interest Rate Hike', 'The central bank raises rates. Every player pays Rp1M per mortgaged property.', [['mortpay', 1 * JT]]);
-K('R32', 'reality', 'Rice Price Spike', 'Nasi is life, and life got pricier. Every player pays Rp1M to the Community Fund.', [['allpay', 1 * JT]]);
-K('R33', 'reality', 'Mass Layoffs', 'Corporate “efficiency”. Office workers (managers, bankers, lawyers, graduates) lose Rp5M.', [['jobcash', ['office'], -5 * JT, 'layoff']]);
-K('R34', 'reality', 'National Shopping Day', 'Online Sellers earn Rp6M and Content Creators Rp3M. Everyone else spends Rp1M.', [['jobcash', ['seller'], 6 * JT], ['jobcash', ['creative'], 3 * JT], ['jobpay', ['seller', 'creative'], 1 * JT]]);
-K('R35', 'reality', 'Volcano Ash Cloud', 'Flights grounded across the islands. Tour Guides lose Rp4M; the Airport owner pays Rp3M.', [['jobcash', ['tourism'], -4 * JT], ['ownerpay', POS['Airport'], 3 * JT]]);
-K('R36', 'reality', 'Union Wage Deal', 'Factory unions win a raise. Factory Workers get Rp5M.', [['jobcash', ['union'], 5 * JT]]);
+K('R17', 'reality', 'Mystery Parking Attendant', 'Invisible when you arrive, right there when you leave.', [['pay', 50 * RB]]);
+K('R18', 'reality', 'Government Cash Aid', 'Direct cash assistance is disbursed. Every player receives Rp200K.', [['allcash', 2 * U]]);
+K('R19', 'reality', 'Collective Leave Day', 'A surprise cuti bersama. Every player gets Rp200K in holiday pay.', [['allcash', 2 * U, 'bonus']]);
+K('R20', 'reality', 'Bali Tourism Boom', 'Flights are full. Owners of Bali and Jakarta collect Rp300K per city; Tour Guides get Rp400K.', [['regionbonus', 'navy', 3 * U], ['jobcash', ['tourism'], 4 * U]]);
+K('R21', 'reality', 'Nickel Boom', 'Smelters everywhere. Owners of Sulawesi cities collect Rp300K per city.', [['regionbonus', 'pink', 3 * U]]);
+K('R22', 'reality', 'New Capital Hype', 'Everyone wants land near the new capital. Owners of Kalimantan cities collect Rp300K per city.', [['regionbonus', 'orange', 3 * U]]);
+K('R23', 'reality', 'Coffee Export Boom', 'Indonesian beans are trending abroad. Coffee Farmers get Rp700K; Warung Owners get Rp200K.', [['jobcash', ['farm'], 7 * U], ['jobcash', ['biz'], 2 * U]]);
+K('R24', 'reality', 'Ojol Surge Pricing', 'It’s raining at 5 p.m. Ojol Drivers earn Rp500K; everyone else pays Rp50K for rides.', [['jobcash', ['gig'], 5 * U], ['jobpay', ['gig'], 50 * RB]]);
+K('R25', 'reality', 'Civil Servant Pay Raise', 'Government salaries go up. Civil Servants and Teachers get Rp400K.', [['jobcash', ['gov'], 4 * U]]);
+K('R26', 'reality', 'Tech Winter', 'Startups cut staff to “extend runway”. Startup Engineers lose Rp1M.', [['jobcash', ['tech'], -10 * U, 'layoff']]);
+K('R27', 'reality', 'Algorithm Change', 'Reach drops 80% overnight. Content Creators lose Rp600K.', [['jobcash', ['creative'], -6 * U]]);
+K('R28', 'reality', 'El Niño Drought', 'The rains don’t come. Coffee Farmers lose Rp800K.', [['jobcash', ['farm'], -8 * U]]);
+K('R29', 'reality', 'Jakarta Floods', 'The capital is underwater again. Owners of Bali and Jakarta pay Rp600K per city.', [['regionpay', 'navy', 6 * U]]);
+K('R30', 'reality', 'Port Strike', 'Ships wait offshore. Every transport owner pays Rp400K per transport space.', [['typepay', 'transport', 4 * U]]);
+K('R31', 'reality', 'Interest Rate Hike', 'The central bank raises rates. Every player pays Rp200K per mortgaged property.', [['mortpay', 2 * U]]);
+K('R32', 'reality', 'Rice Price Spike', 'Nasi is life, and life got pricier. Every player pays Rp300K to the Community Fund.', [['allpay', 3 * U]]);
+K('R33', 'reality', 'Mass Layoffs', 'Corporate “efficiency”. Office workers (managers, bankers, lawyers, graduates) lose Rp800K.', [['jobcash', ['office'], -8 * U, 'layoff']]);
+K('R34', 'reality', 'National Shopping Day', 'Online Sellers earn Rp600K and Content Creators Rp300K. Everyone else spends Rp100K.', [['jobcash', ['seller'], 6 * U], ['jobcash', ['creative'], 3 * U], ['jobpay', ['seller', 'creative'], 1 * U]]);
+K('R35', 'reality', 'Volcano Ash Cloud', 'Flights grounded across the islands. Tour Guides lose Rp600K; the Airport owner pays Rp500K.', [['jobcash', ['tourism'], -6 * U], ['ownerpay', POS['Airport'], 5 * U]]);
+K('R36', 'reality', 'Union Wage Deal', 'Factory unions win a raise. Factory Workers get Rp500K.', [['jobcash', ['union'], 5 * U]]);
+K('R37', 'reality', 'Property Tax (PBB) Due', 'The tax office remembers every plot you own. Pay Rp300K per property.', [['propfee', 3 * U]]);
+K('R38', 'reality', 'VAT Goes Up', 'Everything costs a little more. Every player pays Rp200K per property they own.', [['allpropfee', 2 * U]]);
+K('R39', 'reality', 'Forest Fire Haze', 'Smoke covers the islands for weeks. Owners of Kalimantan and Sumatra cities pay Rp500K per city.', [['regionpay', 'orange', 5 * U], ['regionpay', 'red', 5 * U]]);
+K('R40', 'reality', 'Earthquake', 'The ground shakes in Nusa Tenggara and Sulawesi. Owners there pay Rp500K per city for repairs.', [['regionpay', 'sky', 5 * U], ['regionpay', 'pink', 5 * U]]);
+K('R41', 'reality', 'BPJS Premium Rises', 'Health insurance gets pricier. Every player pays Rp300K to the Community Fund.', [['allpay', 3 * U]]);
+K('R42', 'reality', 'Electricity Tariff Hike', 'The token runs out twice as fast. Pay Rp500K; the Power Company owner pays Rp300K too.', [['pay', 5 * U], ['ownerpay', POS['Power Company'], 3 * U]]);
+K('R43', 'reality', 'Toll Fares Rise', 'Every gate costs more. Every player pays Rp200K to the Community Fund.', [['allpay', 2 * U]]);
+K('R44', 'reality', 'Market Crash', 'The stock index tumbles. The richest player loses Rp2M to the Community Fund.', [['richpay', 20 * U]]);
 
 const CHAT_PRESETS = ['Hi everyone! 👋', 'Let’s go! 🔥', 'Hold on, thinking 🤔', 'LOL 😂', 'End of the month… 😭', 'Cuan! 💸', 'Ouch… 🌧️', 'GG! 🤝', 'Get ready!', 'Bad signal 📶'];
 const AVATARS = ['🐱', '🦊', '🐸', '🐼', '🦉', '🐯', '🐨', '🐵', '🐔', '🦆', '🐙', '🐌'];
@@ -194,10 +211,11 @@ function cardMeta(c) {
   if (c.ch) return { scope: 'you', tone: 'choice' };
   let scope = 'you', pos = false, neg = false;
   for (const [op, a, b] of c.fx) {
-    if (['allcash', 'allpay', 'allrepairs', 'mortpay', 'poorgift', 'richtax', 'each', 'collect'].includes(op)) scope = 'all';
+    if (['allcash', 'allpay', 'allrepairs', 'allpropfee', 'mortpay', 'poorgift', 'richtax', 'each', 'collect'].includes(op)) scope = 'all';
+    else if (op === 'richpay' && scope !== 'all') scope = 'some';
     else if (['jobcash', 'jobpay', 'regionbonus', 'regionpay', 'typepay', 'ownerpay'].includes(op) && scope !== 'all') scope = 'some';
     if (['cash', 'allcash', 'perprop', 'regionbonus', 'collect', 'poorgift'].includes(op) || (op === 'jobcash' && b > 0)) pos = true;
-    if (['pay', 'allpay', 'allrepairs', 'repairs', 'mortpay', 'regionpay', 'typepay', 'ownerpay', 'jobpay', 'each', 'jam', 'back'].includes(op) || (op === 'jobcash' && b < 0)) neg = true;
+    if (['pay', 'propfee', 'allpropfee', 'richpay', 'allpay', 'allrepairs', 'repairs', 'mortpay', 'regionpay', 'typepay', 'ownerpay', 'jobpay', 'each', 'jam', 'back'].includes(op) || (op === 'jobcash' && b < 0)) neg = true;
     if (op === 'richtax') { pos = true; neg = true; }
   }
   return { scope, tone: pos && neg ? 'mixed' : pos ? 'good' : neg ? 'bad' : 'mixed' };
@@ -217,8 +235,8 @@ function netWorth(g, pid) { const p = g.ps[pid]; return p.cash + owned(g, pid).r
 function rentFor(g, i, dice) {
   const s = BOARD[i], pr = g.props[i]; if (!pr.o || pr.m) return 0;
   if (s.t === 'city') return pr.h ? rentTable(i)[pr.h] : baseRent(i) * (ownsGroup(g, pr.o, s.g) ? 2 : 1);
-  if (s.t === 'transport') { const n = BUYABLE.filter(j => BOARD[j].t === 'transport' && g.props[j].o === pr.o).length; return 2500 * RB * 2 ** (n - 1); }
-  if (s.t === 'utility') { const n = BUYABLE.filter(j => BOARD[j].t === 'utility' && g.props[j].o === pr.o).length; return (dice || 7) * (n === 2 ? 1 * JT : 400 * RB); }
+  if (s.t === 'transport') { const n = BUYABLE.filter(j => BOARD[j].t === 'transport' && g.props[j].o === pr.o).length; return 250 * RB * 2 ** (n - 1); }
+  if (s.t === 'utility') { const n = BUYABLE.filter(j => BOARD[j].t === 'utility' && g.props[j].o === pr.o).length; return (dice || 7) * (n === 2 ? 1 * U : 40 * RB); }
   return 0;
 }
 // job-adjusted prices
@@ -276,10 +294,10 @@ function passPayday(g, pid) {
   const p = g.ps[pid], job = J(g, pid); p.laps++;
   let sal = p.sal; if (job.var) sal = ce1k(sal * (job.var[0] + rnd(job.var[1] - job.var[0] + 1)) / 100);
   if (sal > 0) gain(g, pid, sal, `PAYDAY! ${job.name || 'Salary'}`); else log(g, pid, `PAYDAY… but ${job.name || 'the job'} paid nothing this month`);
-  if (job.perProp) gain(g, pid, owned(g, pid).length * job.perProp * JT, 'Shop sales from your properties');
-  if (job.tutor) { let tot = 0; for (const id of activeIds(g)) { if (id === pid) continue; const n = Math.min(job.tutor * JT, g.ps[id].cash); g.ps[id].cash -= n; tot += n; } if (tot) { p.cash += tot; log(g, pid, 'Private tutoring fees from every player', tot); } }
-  if (job.grow) { p.sal += job.grow * JT; log(g, pid, `Career growth: salary is now ${rpShort(p.sal)}`); }
-  if (job.life) charge(g, pid, job.life * JT, 'living costs', 'bank');
+  if (job.perProp) gain(g, pid, owned(g, pid).length * job.perProp * U, 'Shop sales from your properties');
+  if (job.tutor) { let tot = 0; for (const id of activeIds(g)) { if (id === pid) continue; const n = Math.min(job.tutor * U, g.ps[id].cash); g.ps[id].cash -= n; tot += n; } if (tot) { p.cash += tot; log(g, pid, 'Private tutoring fees from every player', tot); } }
+  if (job.grow) { p.sal += job.grow * U; log(g, pid, `Career growth: salary is now ${rpShort(p.sal)}`); }
+  if (job.life) charge(g, pid, job.life * U, 'living costs', 'bank');
   if (p.owe) { const o = p.owe; p.owe = 0; charge(g, pid, o, 'loan repayment', 'bank'); }
 }
 function walk(g, pid, steps) { // forward (steps > 0) or back
@@ -304,10 +322,10 @@ function land(g, pid) {
     if (s.t === 'city' && !J(g, pr.o).protect && mineIn(g, pr.o, s.g).every(j => g.props[j].h === 0)) g.q.push({ k: 'takeover', i, price: takeoverPrice(g, pid, i) }); // optional, after the rent
     return;
   }
-  if (['event', 'reality', 'market'].includes(s.t) && J(g, pid).cardSpace) gain(g, pid, J(g, pid).cardSpace * JT, 'Warung customers at the card space');
+  if (['event', 'reality', 'market'].includes(s.t) && J(g, pid).cardSpace) gain(g, pid, J(g, pid).cardSpace * U, 'Warung customers at the card space');
   if (s.t === 'event' || s.t === 'reality') { g.q.push({ k: 'card', id: draw(g, s.t) }); return; }
   if (s.t === 'market') { log(g, pid, 'Night Market: hearing the latest news'); g.q.push({ k: 'card', id: draw(g, 'reality') }); return; }
-  if (s.t === 'arisan') { let tot = 0; for (const id of activeIds(g)) { if (id === pid) continue; const n = Math.min(1 * JT, g.ps[id].cash); g.ps[id].cash -= n; tot += n; } p.cash += tot; log(g, pid, 'Arisan Night: your name was drawn', tot); return; }
+  if (s.t === 'arisan') { let tot = 0; for (const id of activeIds(g)) { if (id === pid) continue; const n = Math.min(1 * U, g.ps[id].cash); g.ps[id].cash -= n; tot += n; } p.cash += tot; log(g, pid, 'Arisan Night: your name was drawn', tot); return; }
   if (s.t === 'gojam') { goJam(g, pid, 'Wrong turn'); return; }
   if (s.t === 'rest') { const f = g.fund; g.fund = 0; if (f > 0) gain(g, pid, f, 'Rest Area: collected the Community Fund'); else log(g, pid, 'Rest Area: the Community Fund is empty'); return; }
   if (s.t === 'jam') { log(g, pid, 'Just passing the Traffic Jam'); return; }
@@ -320,7 +338,7 @@ function draw(g, deck) {
 
 function runFx(g, pid, fx, title) {
   const p = g.ps[pid], job = J(g, pid);
-  const cardCash = (amt, tag) => { let n = amt * (100 + (job.cardPos || 0)) / 100; if (tag === 'bonus' && job.union) n += job.union * JT; return ce1k(n); };
+  const cardCash = (amt, tag) => { let n = amt * (100 + (job.cardPos || 0)) / 100; if (tag === 'bonus' && job.union) n += job.union * U; return ce1k(n); };
   const cardPay = (id, amt, tag, extraPct = 0) => { const jj = J(g, id); if (tag && (jj.immune || []).includes(tag)) return 0; if (tag === 'layoff' && jj.safe) return 0; return ce1k(amt * (100 + (jj.cardNeg || 0) + extraPct) / 100); };
   for (const [op, a, b, c] of fx) {
     switch (op) {
@@ -328,9 +346,12 @@ function runFx(g, pid, fx, title) {
       case 'pay': { const n = cardPay(pid, a, b); if (n) charge(g, pid, n, title, 'fund'); else log(g, pid, `${job.name}: not affected by ${title}`); break; }
       case 'each': for (const id of activeIds(g)) if (id !== pid) charge(g, pid, a, title, id); break;
       case 'collect': { let tot = 0; for (const id of activeIds(g)) { if (id === pid) continue; const n = Math.min(a, g.ps[id].cash); g.ps[id].cash -= n; tot += n; } p.cash += tot; log(g, pid, `${title}: collected from every player`, tot); break; }
-      case 'allcash': for (const id of activeIds(g)) { const jj = J(g, id); gain(g, id, a + (b === 'bonus' && jj.union ? jj.union * JT : 0), title); } break;
+      case 'allcash': for (const id of activeIds(g)) { const jj = J(g, id); gain(g, id, a + (b === 'bonus' && jj.union ? jj.union * U : 0), title); } break;
       case 'allpay': { log(g, null, `${title}: every player pays ${rpShort(a)}`); for (const id of activeIds(g)) payBy(g, pid, id, cardPay(id, a), title); break; }
       case 'allrepairs': for (const id of activeIds(g)) { const n = owned(g, id).filter(i => BOARD[i].t === 'city').reduce((s, i) => s + (g.props[i].h === 5 ? b : g.props[i].h * a), 0); if (n) payBy(g, pid, id, cardPay(id, n, null, J(g, id).repairs || 0), title); } break;
+      case 'propfee': { const n = owned(g, pid).length; if (n) charge(g, pid, cardPay(pid, n * a), title, 'fund'); else log(g, pid, 'No properties yet, so nothing to pay'); break; }
+      case 'allpropfee': for (const id of activeIds(g)) { const n = owned(g, id).length; if (n) payBy(g, pid, id, cardPay(id, n * a), title); } break;
+      case 'richpay': { const rich = activeIds(g).sort((x, y) => netWorth(g, y) - netWorth(g, x))[0]; payBy(g, pid, rich, cardPay(rich, a), `${title} (${nameOf(g, rich)})`); break; }
       case 'perprop': gain(g, pid, a * owned(g, pid).length, title); if (!owned(g, pid).length) log(g, pid, 'No properties yet, so nothing to collect'); break;
       case 'repairs': { const n = owned(g, pid).filter(i => BOARD[i].t === 'city').reduce((s, i) => s + (g.props[i].h === 5 ? b : g.props[i].h * a), 0); if (n) charge(g, pid, cardPay(pid, n, null, job.repairs || 0), title, 'fund'); else log(g, pid, 'No buildings, nothing to fix'); break; }
       case 'jobcash': for (const id of activeIds(g)) { if (!hasTag(g, id, a)) continue; if (b > 0) gain(g, id, b, `${title} (${J(g, id).name})`); else { const n = cardPay(id, -b, c); if (n) payBy(g, pid, id, n, `${title} (${J(g, id).name})`); else log(g, id, `${J(g, id).name}: protected from ${title}`); } } break;
@@ -448,9 +469,9 @@ function advance(g) {
 function endGame(g, reason) { g.status = 'ended'; g.phase = null; g.q = []; g.endReason = reason; g.round = Math.min(g.round, g.cfg.rounds); log(g, null, reason === 'last' ? 'Only one player is left standing. Game over!' : 'Final round complete. Counting the fortunes!'); }
 function applyJob(g, pid, key) {
   const p = g.ps[pid], j = JOBS[key];
-  p.job = key; p.sal = j.sal * JT;
-  if (j.start) p.cash += j.start * JT;
-  if (j.owe) p.owe += j.owe * JT;
+  p.job = key; p.sal = j.sal * U;
+  if (j.start) p.cash += j.start * U;
+  if (j.owe) p.owe += j.owe * U;
   log(g, pid, `Chose ${j.name} (${rpShort(p.sal)} salary)`);
 }
 function botJob(g, id) { const offers = g.offers[id]; return offers.map(k => [k, JOBS[k].sal - (JOBS[k].life || 0) + (JOBS[k].perProp ? 3 : 0) + (JOBS[k].tutor ? 4 : 0) + (JOBS[k].build ? 3 : 0) + rnd(5)]).sort((a, b) => b[1] - a[1])[0][0]; }
@@ -569,7 +590,7 @@ const A = {
     const cur = g.order[g.turnIdx], p = g.ps[cur]; if (!p.bot) fail('It’s not a bot’s turn.');
     if (g.phase === 'roll') {
       botManage(g, cur);
-      if (p.jam) { if (p.cards) A.jamCard(g, cur); else if (p.cash > 60 * JT && g.round < g.cfg.rounds * 0.6 && p.cash >= jamFee(g, cur)) A.jamPay(g, cur); }
+      if (p.jam) { if (p.cards) A.jamCard(g, cur); else if (p.cash > 60 * U && g.round < g.cfg.rounds * 0.6 && p.cash >= jamFee(g, cur)) A.jamPay(g, cur); }
       A.roll(g, cur);
     } else if (g.phase === 'act') A.resolve(g, cur, botChoose(g, cur));
     else if (g.phase === 'end') { botManage(g, cur); A.end(g, cur); }
@@ -577,7 +598,7 @@ const A = {
 };
 
 // ================= bot brain =================
-const RESERVE = 15 * JT;
+const RESERVE = 15 * U;
 function botManage(g, id) {
   const p = g.ps[id];
   for (let k = 0; k < 4; k++) { const m = owned(g, id).filter(i => g.props[i].m).sort((a, b) => unmortCost(g, id, a) - unmortCost(g, id, b))[0]; if (m === undefined || p.cash - unmortCost(g, id, m) < RESERVE * 2) break; const c = unmortCost(g, id, m); p.cash -= c; g.props[m].m = false; delete g.props[m].mv; log(g, id, `Paid off the mortgage on ${BOARD[m].n}`, -c); }
@@ -591,14 +612,14 @@ function botChoose(g, id, safe) {
   const it = g.q[0], p = g.ps[id], opts = optionsFor(g, id, it);
   if (it.k === 'buy') {
     const s = BOARD[it.i], price = buyPrice(g, id, it.i), completes = s.g && groupOf(s.g).every(j => j === it.i || g.props[j].o === id);
-    const want = !safe && opts[0].ok && (completes || p.cash - price >= RESERVE || (p.cash - price >= 5 * JT && g.round <= 6));
+    const want = !safe && opts[0].ok && (completes || p.cash - price >= RESERVE || (p.cash - price >= 5 * U && g.round <= 6));
     return want ? 0 : 1;
   }
   if (it.k === 'takeover') {
     if (safe || !opts[0].ok) return 1;
     const s = BOARD[it.i], grp = groupOf(s.g), mine = grp.filter(j => g.props[j].o === id).length;
     const completes = mine === grp.length - 1;
-    return (completes && p.cash - it.price >= 5 * JT) || (mine >= 1 && p.cash - it.price >= RESERVE) ? 0 : 1;
+    return (completes && p.cash - it.price >= 5 * U) || (mine >= 1 && p.cash - it.price >= RESERVE) ? 0 : 1;
   }
   if (it.k === 'debt') {
     if (opts[0].ok) return 0;
@@ -612,9 +633,9 @@ function botChoose(g, id, safe) {
   let best = -1, bestV = -Infinity;
   opts.forEach((o, i) => {
     if (!o.ok) return; let v;
-    try { const t = JSON.parse(JSON.stringify(g)); A.resolve(t, id, i); v = netWorth(t, id) + Math.min(t.ps[id].cash, 40 * JT) * 0.3 - (t.ps[id].jam ? 6 * JT : 0) - (t.q.length && t.q[0].k === 'debt' ? 20 * JT : 0) - (t.ps[id].out ? 1e9 : 0); }
+    try { const t = JSON.parse(JSON.stringify(g)); A.resolve(t, id, i); v = netWorth(t, id) + Math.min(t.ps[id].cash, 40 * U) * 0.3 - (t.ps[id].jam ? 6 * U : 0) - (t.q.length && t.q[0].k === 'debt' ? 20 * U : 0) - (t.ps[id].out ? 1e9 : 0); }
     catch (e) { return; }
-    if (!safe) v += rnd(2 * JT);
+    if (!safe) v += rnd(2 * U);
     if (v > bestV) { bestV = v; best = i; }
   });
   if (best < 0) best = Math.max(0, opts.findIndex(o => o.def && o.ok));
@@ -647,7 +668,7 @@ function computeResults(g) {
 }
 
 export {
-  A, GameError, BOARD, GROUPS, SPACE_TYPES, CARDS, JOBS, BUYABLE, POS, TITLES, BOTS, CHAT_PRESETS, AVATARS, PCOLORS, JT, START_CASH,
+  A, GameError, BOARD, GROUPS, SPACE_TYPES, CARDS, JOBS, BUYABLE, POS, TITLES, BOTS, CHAT_PRESETS, AVATARS, PCOLORS, JT, U, START_CASH,
   optionsFor, computeResults, netWorth, rentFor, rentDue, rentTable, baseRent, houseCost, buildCost, buyPrice, takeoverPrice, jamFee,
   canBuild, canSellHouse, canMortgage, unmortCost, mortValueFor, owned, groupOf, ownsGroup, cardMeta, isLegacy, nameOf, avOf,
   rnd, mkId, mkCode, rp, rpShort, botChoose,

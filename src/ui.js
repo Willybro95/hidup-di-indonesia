@@ -3,7 +3,7 @@
 //   backend-claude.js   — claude.ai artifact storage (rules run in the browser under a short lease)
 //   backend-supabase.js — the public website (rules run in the Supabase game-action function)
 import {
-  A, BOARD, GROUPS, SPACE_TYPES, CARDS, JOBS, TITLES, CHAT_PRESETS, AVATARS, PCOLORS,
+  A, BOARD, GROUPS, SPACE_TYPES, CARDS, JOBS, TITLES, CHAT_PRESETS, AVATARS, PCOLORS, U,
   optionsFor, computeResults, netWorth, rentFor, rentTable, houseCost, buildCost, takeoverPrice, jamFee,
   canBuild, canSellHouse, canMortgage, unmortCost, mortValueFor, owned, cardMeta, isLegacy, nameOf, avOf, rp, rpShort,
 } from '../supabase/functions/_shared/engine.js';
@@ -257,7 +257,7 @@ function fatalView() {
 function homeView() {
   const avs = AVATARS.map((a, i) => `<button type="button" data-act="av" data-v="${i}" aria-pressed="${i === S.av}" aria-label="Avatar ${i + 1}">${a}</button>`).join('');
   return `<div class="wrap">${hero()}
-  <p style="max-width:60ch;margin:0 0 16px;font-size:16px">A 3D property game on a hexagon of 22 Indonesian cities for 2–6 players. Pick a job, buy cities from Cirebon to Jakarta, charge rent, build houses and towers, and survive what Indonesia throws at everyone: fuel hikes, floods, cash aid and surge pricing.</p>
+  <p style="max-width:60ch;margin:0 0 16px;font-size:16px">A 3D property game on a hexagon of 22 Indonesian cities for 2–6 players. Pick a job, buy cities from Jayapura to Jakarta, charge rent, build houses and towers, and survive what Indonesia throws at everyone: fuel hikes, floods, cash aid and surge pricing.</p>
   <div class="home-grid">
     <div class="panel" style="padding:18px"><div class="stack">
       <div class="label">Step 1 · Your player</div>
@@ -273,7 +273,7 @@ function homeView() {
       <div class="feat">
         <div><b>17 jobs</b>Pick from 3–4 offers. Ojol drivers dodge traffic, contractors build cheap, doctors shrug off dengue.</div>
         <div><b>Hexagon board</b>36 spaces, 6 corners, in 3D. Rotate, zoom, tap any city.</div>
-        <div><b>66 cards</b>Some hit only you, some hit everyone, some hit one job or one region.</div>
+        <div><b>80 cards</b>Some hit only you, some hit everyone, some hit one job or one region.</div>
         <div><b>Takeovers</b>Pay rent, then buy the city from its owner at 150%.</div>
       </div>
       <button class="btn" data-act="rules">How to play</button>
@@ -394,7 +394,7 @@ function tileCard(g, i, closable) {
   if (pr) {
     body += `<div class="row" style="gap:6px"><b>${esc(rp(s.price))}</b>${pr.o ? `<span class="chip"><span class="swatch" style="background:${pCol(g, pr.o)}"></span>${esc(nameOf(g, pr.o))}${pr.m ? ' · mortgaged' : ''}</span>` : '<span class="chip">For sale</span>'}</div>`;
     if (s.t === 'city') { const rt = rentTable(i), lab = ['Rent', '1 house', '2 houses', '3 houses', '4 houses', 'Tower']; body += `<div class="rent">${rt.map((v, k) => `<span class="${pr.h === k && pr.o ? 'on' : ''}">${lab[k]}${k === 0 ? ' (×2 with full group)' : ''}</span><span class="${pr.h === k && pr.o ? 'on' : ''}">${esc(rpShort(v))}</span>`).join('')}</div><div class="small muted">Building: ${esc(rpShort(g.ps?.[S.me] ? buildCost(g, S.me, i) : houseCost(i)))} each · Takeover ${esc(rpShort(g.ps?.[S.me] ? takeoverPrice(g, S.me, i) : s.price * 1.5))}${pr.o && JOBS[g.ps[pr.o]?.job]?.protect ? ' (protected: owner is a Lawyer)' : ''}</div>`; }
-    else if (s.t === 'transport') body += `<div class="rent"><span>Own 1 / 2 / 3</span><span>Rp2.5M / Rp5M / Rp10M</span></div>`;
+    else if (s.t === 'transport') body += `<div class="rent"><span>Own 1 / 2 / 3</span><span>Rp250K / Rp500K / Rp1M</span></div>`;
   }
   return `<div class="tilecard"><div class="tb ${lt ? 'light' : ''}" style="background:${bc}"><span>${SPACE_TYPES[s.t].ic}</span><span style="flex:1">${esc(s.n)}</span>${closable ? `<button class="btn sm" data-act="tile" data-v="${i}" style="background:#fff;color:#17201B;min-height:28px">✕</button>` : ''}</div><div class="bd">${body}</div></div>`;
 }
@@ -408,7 +408,7 @@ function actionBar(g) {
       if (p.jam) {
         main = `<div class="row" style="flex-wrap:wrap">
           <button class="btn pri big" style="flex:1" data-act="roll" ${busy || anim ? 'disabled' : ''}>🎲 Roll for doubles</button>
-          <button class="btn big" data-act="jamPay" ${busy || anim || p.cash < jamFee(g, S.me) ? 'disabled' : ''}>${jamFee(g, S.me) ? 'Pay Rp5M' : 'Leave free (ojol)'}</button>
+          <button class="btn big" data-act="jamPay" ${busy || anim || p.cash < jamFee(g, S.me) ? 'disabled' : ''}>${jamFee(g, S.me) ? 'Pay Rp500K' : 'Leave free (ojol)'}</button>
           ${p.cards ? `<button class="btn big teal" data-act="jamCard" ${busy || anim ? 'disabled' : ''}>Use Shortcut Card</button>` : ''}</div>`;
         note = `Stuck in the Traffic Jam: roll doubles, pay, or use a card. ${p.jam} ${p.jam === 1 ? 'try' : 'tries'} left.`;
       } else { main = `<button class="btn pri big block" data-act="roll" ${busy || anim ? 'disabled' : ''}>🎲 Roll the dice</button>`; note = 'Doubles roll again. Three doubles in a row sends you to the Traffic Jam.'; }
@@ -488,15 +488,15 @@ function rulesModal() {
   return `<div class="scrim" role="dialog" aria-modal="true" aria-label="Rules"><div class="card" style="width:min(660px,100%)"><div class="band" style="--cc:var(--yellow)"><span class="ic">📖</span><span class="cat">How to play</span><span style="flex:1"></span><button class="btn sm" data-act="closeModal" style="background:#fff;color:#17201B">Close</button></div>
   <div class="body rules" style="max-height:72vh;overflow-y:auto">
     <h3>Goal</h3><p>Be the richest player when the last round ends, or the last one standing. Net worth = cash + property prices (half if mortgaged) + buildings − unpaid loans.</p>
-    <h3>Board</h3><p>A hexagon of 36 spaces with a special corner at each of its six points: Payday, Traffic Jam, Night Market (draw an Indonesia Reality card), Rest Area (collect the Community Fund), Wrong Turn! (go to the Traffic Jam) and Arisan Night (collect Rp1M from every player).</p>
+    <h3>Board</h3><p>A hexagon of 36 spaces with a special corner at each of its six points: Payday, Traffic Jam, Night Market (draw an Indonesia Reality card), Rest Area (collect the Community Fund), Wrong Turn! (go to the Traffic Jam) and Arisan Night (collect Rp100K from every player).</p>
     <h3>Jobs</h3><p>When the host starts, every player is offered ${'3–4'} jobs (3 at tables of 5–6) and must pick one. Your job sets your salary at every Payday and gives you a perk and a drawback. Bots pick their own.</p>
-    <div class="jobgrid">${Object.values(JOBS).map(j => `<div><b>${j.ic} ${esc(j.name)}</b> <span class="muted">${esc(rpShort(j.sal * 1e6))}${j.var ? ' (varies)' : ''}</span><div class="small pos">${j.pros.map(esc).join(' · ')}</div><div class="small neg">${j.cons.map(esc).join(' · ')}</div></div>`).join('')}</div>
-    <h3>Start</h3><p>Everyone starts at Payday with Rp100M (some jobs adjust this).</p>
+    <div class="jobgrid">${Object.values(JOBS).map(j => `<div><b>${j.ic} ${esc(j.name)}</b> <span class="muted">${esc(rpShort(j.sal * U))}${j.var ? ' (varies)' : ''}</span><div class="small pos">${j.pros.map(esc).join(' · ')}</div><div class="small neg">${j.cons.map(esc).join(' · ')}</div></div>`).join('')}</div>
+    <h3>Start</h3><p>Everyone starts at Payday with Rp10M (some jobs adjust this).</p>
     <h3>Your turn</h3><ul><li>Roll two dice and move. Doubles roll again; three doubles in a row sends you to the Traffic Jam.</li><li>Unowned city, transport or utility: buy it or pass.</li><li>Someone else’s property: pay rent. Mortgaged properties charge no rent.</li><li>Life Event and Indonesia Reality spaces draw a card. Each card says whom it affects: just you, some players (by job or by region) or everyone, and whether it’s good or bad news.</li></ul>
-    <h3>Rent</h3><ul><li>Cities: base rent, doubled when the owner has the whole color group. Houses and towers raise it a lot.</li><li>Transport: Rp2.5M, Rp5M or Rp10M for owning 1, 2 or 3.</li><li>Utilities: dice total × Rp400K, or × Rp1M with both.</li></ul>
+    <h3>Rent</h3><ul><li>Cities: base rent, doubled when the owner has the whole color group. Houses and towers raise it a lot.</li><li>Transport: Rp250K, Rp500K or Rp1M for owning 1, 2 or 3.</li><li>Utilities: dice total × Rp40K, or × Rp100K with both.</li></ul>
     <h3>Takeovers</h3><p>After paying rent on a city whose owner hasn’t built in that color group, you may buy the city from them for 150% of its price (125% for Lawyers). Lawyers’ cities can’t be taken over.</p>
     <h3>Building</h3><p>Own two cities of a color group to build houses on them, evenly (one at a time across the cities you own). A tower needs the whole group and four houses on that city. Build on your turn from “My cities”.</p>
-    <h3>Traffic Jam</h3><p>Sent there by Wrong Turn!, a card or three doubles: you’re stuck for up to three turns. Roll doubles to leave, pay Rp5M, or use a Shortcut Card. After three failed tries you pay and move. Ojol Drivers are only held one turn and never pay.</p>
+    <h3>Traffic Jam</h3><p>Sent there by Wrong Turn!, a card or three doubles: you’re stuck for up to three turns. Roll doubles to leave, pay Rp500K, or use a Shortcut Card. After three failed tries you pay and move. Ojol Drivers are only held one turn and never pay.</p>
     <h3>Community Fund</h3><p>Card payments and Traffic Jam fees go into the fund. Land exactly on the Rest Area to collect all of it.</p>
     <h3>Can’t pay?</h3><p>Mortgage properties (get half their price, 60% for Bankers) or sell buildings (half their cost). If that still isn’t enough, you’re bankrupt: your assets go to the player you owe, or back to the bank.</p>
     <h3>Bots</h3><p>The host can add bots in the lobby, or pick “Play against bots”. The host’s page plays their turns.</p>
@@ -525,7 +525,7 @@ function jobsView() {
   const g = S.g, me = g.ps?.[S.me], offers = g.offers?.[S.me] || [];
   const status = g.order.map(id => `<div class="pitem">${avHtml(g.ps[id].av, 's', pCol(g, id))}<div class="grow"><div class="nm">${g.ps[id].bot ? '🤖 ' : ''}${esc(nameOf(g, id))}${id === S.me ? ' (you)' : ''}</div></div>${g.ps[id].job ? `<span class="chip">✓ ${JOBS[g.ps[id].job].ic} ${esc(JOBS[g.ps[id].job].name)}</span>` : '<span class="chip">Choosing…</span>'}</div>`).join('');
   const cards = offers.map(k => { const j = JOBS[k], picked = me?.job === k; return `<div class="jobcard ${picked ? 'picked' : ''}">
-      <div class="jh"><span class="ji">${j.ic}</span><div><div class="jn">${esc(j.name)}</div><div class="js">${esc(rpShort(j.sal * 1e6))} per Payday${j.var ? ` · varies ${j.var[0]}–${j.var[1]}%` : ''}</div></div></div>
+      <div class="jh"><span class="ji">${j.ic}</span><div><div class="jn">${esc(j.name)}</div><div class="js">${esc(rpShort(j.sal * U))} per Payday${j.var ? ` · varies ${j.var[0]}–${j.var[1]}%` : ''}</div></div></div>
       <ul class="pros">${j.pros.map(x => `<li>${esc(x)}</li>`).join('')}</ul><ul class="cons">${j.cons.map(x => `<li>${esc(x)}</li>`).join('')}</ul>
       ${me && !me.job ? `<button class="btn pri block" data-act="pickJob" data-v="${k}" ${isBusy() ? 'disabled' : ''}>Take this job</button>` : picked ? '<div class="chip" style="justify-self:start">✓ Your job</div>' : ''}</div>`; }).join('');
   return `<div class="stack" style="max-width:1000px;margin:0 auto">

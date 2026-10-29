@@ -1,6 +1,6 @@
 # HIDUP DI INDONESIA: City Edition
 
-*Salary in, trouble out.* A 3D online property game for 2–6 players on a hexagon board of 22 Indonesian cities. Pick a job, buy cities from Cirebon to Jakarta, charge rent, build houses and towers, take over rivals' cities, and survive what Indonesia throws at everyone: fuel hikes, floods, cash aid and surge pricing. Play with friends, against bots, or both.
+*Salary in, trouble out.* A 3D online property game for 2–6 players on a hexagon board of 22 Indonesian cities. Pick a job, buy cities from Jayapura to Jakarta, charge rent, build houses and towers, take over rivals' cities, and survive what Indonesia throws at everyone: fuel hikes, floods, cash aid and surge pricing. Play with friends, against bots, or both.
 
 - **Website:** plain JavaScript + Three.js (3D board with a 2D fallback), installable on phones (PWA)
 - **Backend:** Supabase (Postgres, Auth, Realtime, Edge Functions)
@@ -94,7 +94,7 @@ every move ──────────► Edge Function game-action
 ### Project layout
 ```
 src/                          website: ui.js (screens), board3d.js (Three.js board), backend-supabase.js, main.js
-supabase/functions/_shared/   engine.js: rules, 36-space hexagon, 22 cities, 17 jobs, 66 cards, scoring, bot AI
+supabase/functions/_shared/   engine.js: rules, 36-space hexagon, 22 cities, 17 jobs, 80 cards, scoring, bot AI
                               handler.ts: authoritative action handler
 supabase/functions/game-action/  edge function entry point
 supabase/migrations/          tables, RLS policies, apply_game_action(), reference data

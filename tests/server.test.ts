@@ -14,7 +14,7 @@ async function main() {
   await setup();
   ok(true, 'migrations apply cleanly on Postgres');
   const cards = await db.query<any>('select count(*)::int as n from public.card_definitions');
-  ok(cards.rows[0].n === 66, `reference cards seeded (${cards.rows[0].n})`);
+  ok(cards.rows[0].n === 80, `reference cards seeded (${cards.rows[0].n})`);
 
   const [u1, u2, u3, outsider] = [await newUser(), await newUser(), await newUser(), await newUser()];
 

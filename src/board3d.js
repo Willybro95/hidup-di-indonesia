@@ -75,7 +75,7 @@ export const Board3D = (() => {
     [[.80, .35], [.86, .30], [.93, .36], [.99, .40], [.99, .62], [.93, .60], [.87, .50], [.82, .45]],
   ];
   const SMALL = [[.545, .725, .012], [.585, .735, .011], [.62, .742, .012], [.68, .75, .013], [.72, .38, .014], [.75, .45, .011], [.70, .50, .01]];
-  const DOTS = { Cirebon: [.37, .675], Tegal: [.39, .68], Padang: [.11, .40], Pekanbaru: [.15, .32], Palembang: [.22, .52], Pontianak: [.36, .33], Balikpapan: [.50, .38], Samarinda: [.49, .32], Makassar: [.57, .51], Manado: [.66, .245], Palu: [.565, .33], 'Labuan Bajo': [.64, .745], Ambon: [.73, .45], Jayapura: [.965, .39], Semarang: [.41, .67], Solo: [.425, .69], Yogyakarta: [.41, .705], Bandung: [.33, .69], Surabaya: [.475, .685], Malang: [.47, .71], Bali: [.535, .725], Jakarta: [.305, .665] };
+  const DOTS = { Kupang: [.665, .78], Mataram: [.555, .73], Padang: [.11, .40], Medan: [.085, .22], Palembang: [.22, .52], Pontianak: [.36, .33], Balikpapan: [.50, .38], Samarinda: [.49, .32], Makassar: [.57, .51], Manado: [.66, .245], Palu: [.565, .33], 'Labuan Bajo': [.64, .745], Ambon: [.73, .45], Jayapura: [.965, .39], Semarang: [.41, .67], Solo: [.425, .69], Yogyakarta: [.41, .705], Bandung: [.33, .69], Surabaya: [.475, .685], Malang: [.47, .71], Bali: [.535, .725], Jakarta: [.305, .665] };
   const MAP = { w: 8.4, h: 4.4, x0: -4.2, z0: -1.25 };
   const mapXZ = ([a, b]) => [MAP.x0 + a * MAP.w, MAP.z0 + b * MAP.h];
   function seaTexture() {

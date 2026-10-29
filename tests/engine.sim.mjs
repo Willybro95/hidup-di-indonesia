@@ -32,7 +32,7 @@ for (let gi = 0; gi < N; gi++) {
     if (p.bot) { A.botStep(g, 'h0'); }
     else if (g.phase === 'roll') {
       if (rnd(4) === 0) { const b = E.owned(g, c).find(i => E.canBuild(g, c, i)); if (b !== undefined && p.cash >= E.houseCost(b)) A.build(g, c, b); }
-      if (p.jam && rnd(2) && p.cash >= 5e6) A.jamPay(g, c);
+      if (p.jam && rnd(2) && p.cash >= E.jamFee(g, c)) A.jamPay(g, c);
       A.roll(g, c);
       try { A.roll(clone(g), c); chk(false, 'double roll'); } catch (e) { rejects++; }
     } else if (g.phase === 'act') {
